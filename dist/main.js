@@ -1624,10 +1624,13 @@ function renderEntry(id) {
         <div>
           ${e.body.map((p) => `<p>${esc(p)}</p>`).join('')}
         </div>
-        <div class="infobox">
-          ${Object.entries(e.info).map(([k, v]) => `
-            <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
-          `).join('')}
+        <div class="entry-side">
+          ${e.image ? `<img class="entry-portrait" src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">` : ''}
+          <div class="infobox">
+            ${Object.entries(e.info).map(([k, v]) => `
+              <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
+            `).join('')}
+          </div>
         </div>
       </div>
     </div>
