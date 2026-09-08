@@ -598,6 +598,52 @@ function getFirestoreDb(): any {
   return (window as any).db || null;
 }
 
+// Quand les données Firestore changent (par ex. un autre utilisateur publie une
+// fiche), on doit tout de même ré-afficher la page — mais si l'utilisateur est
+// en train de remplir un formulaire d'écriture non encore envoyé, un simple
+// re-rendu détruirait et reconstruirait ce formulaire, effaçant ce qu'il a déjà
+// tapé. On capture donc son brouillon juste avant le re-rendu et on le
+// restaure juste après, pour que la synchronisation en temps réel n'écrase
+// jamais un texte en cours de rédaction.
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfBody','wfImageData','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
+
+function captureDraftFormState(): Record<string,string> {
+  const state: Record<string,string> = {};
+  for(const id of DRAFT_FIELD_IDS){
+    const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+    if(el) state[id] = el.value;
+  }
+  const checkedTags = Array.from(document.querySelectorAll<HTMLInputElement>('.ceTagCheck:checked')).map(c=>c.value);
+  if(checkedTags.length) state['__ceTags'] = checkedTags.join(',');
+  return state;
+}
+
+function restoreDraftFormState(state: Record<string,string>): void {
+  for(const id of DRAFT_FIELD_IDS){
+    if(!(id in state)) continue;
+    const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
+    if(el) el.value = state[id];
+  }
+  if(state['__ceTags']){
+    const tags = state['__ceTags'].split(',');
+    document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c=>{ c.checked = tags.includes(c.value); });
+  }
+  if(state['wfImageData']){
+    const preview = document.getElementById('wfImagePreview') as HTMLImageElement | null;
+    const removeBtn = document.getElementById('wfImageRemoveBtn');
+    if(preview){ preview.src = state['wfImageData']; preview.style.display = ''; }
+    if(removeBtn) removeBtn.style.display = '';
+  }
+  if(state['wfEditId']){
+    const btn = document.getElementById('wfSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
+    const cancelBtn = document.getElementById('wfCancelBtn'); if(cancelBtn) cancelBtn.style.display = '';
+  }
+  if(state['ceEditId']){
+    const btn = document.getElementById('ceSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
+    const cancelBtn = document.getElementById('ceCancelBtn'); if(cancelBtn) cancelBtn.style.display = '';
+  }
+}
+
 function initFirestoreSync(): void {
   const db = getFirestoreDb();
   if(!db) return;
@@ -612,7 +658,9 @@ function initFirestoreSync(): void {
     }
     list.forEach(c => ENTRIES.push(customEntryToEntry(c)));
     customEntriesCache = list;
+    const draft = captureDraftFormState();
     render();
+    restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (entries) :', err));
 
   db.collection('navPages').onSnapshot((snap: any) => {
@@ -623,7 +671,9 @@ function initFirestoreSync(): void {
     });
     customPagesCache = list;
     refreshCustomNavLinks();
+    const draft = captureDraftFormState();
     render();
+    restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (pages) :', err));
 
   db.collection('chronoEvents').onSnapshot((snap: any) => {
@@ -633,7 +683,9 @@ function initFirestoreSync(): void {
       list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
     });
     customChronoCache = list;
+    const draft = captureDraftFormState();
     render();
+    restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (chrono) :', err));
 }
 

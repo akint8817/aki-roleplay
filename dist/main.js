@@ -483,6 +483,46 @@ let customChronoCache = [];
 function getFirestoreDb() {
     return window.db || null;
 }
+
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfBody', 'wfImageData', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
+
+function captureDraftFormState() {
+    const state = {};
+    for (const id of DRAFT_FIELD_IDS) {
+        const el = document.getElementById(id);
+        if (el) state[id] = el.value;
+    }
+    const checkedTags = Array.from(document.querySelectorAll('.ceTagCheck:checked')).map(c => c.value);
+    if (checkedTags.length) state['__ceTags'] = checkedTags.join(',');
+    return state;
+}
+
+function restoreDraftFormState(state) {
+    for (const id of DRAFT_FIELD_IDS) {
+        if (!(id in state)) continue;
+        const el = document.getElementById(id);
+        if (el) el.value = state[id];
+    }
+    if (state['__ceTags']) {
+        const tags = state['__ceTags'].split(',');
+        document.querySelectorAll('.ceTagCheck').forEach(c => { c.checked = tags.includes(c.value); });
+    }
+    if (state['wfImageData']) {
+        const preview = document.getElementById('wfImagePreview');
+        const removeBtn = document.getElementById('wfImageRemoveBtn');
+        if (preview) { preview.src = state['wfImageData']; preview.style.display = ''; }
+        if (removeBtn) removeBtn.style.display = '';
+    }
+    if (state['wfEditId']) {
+        const btn = document.getElementById('wfSubmitBtn'); if (btn) btn.textContent = 'Enregistrer les modifications';
+        const cancelBtn = document.getElementById('wfCancelBtn'); if (cancelBtn) cancelBtn.style.display = '';
+    }
+    if (state['ceEditId']) {
+        const btn = document.getElementById('ceSubmitBtn'); if (btn) btn.textContent = 'Enregistrer les modifications';
+        const cancelBtn = document.getElementById('ceCancelBtn'); if (cancelBtn) cancelBtn.style.display = '';
+    }
+}
+
 function initFirestoreSync() {
     const db = getFirestoreDb();
     if (!db) return;
@@ -497,7 +537,9 @@ function initFirestoreSync() {
         }
         list.forEach(c => ENTRIES.push(customEntryToEntry(c)));
         customEntriesCache = list;
+        const draft = captureDraftFormState();
         render();
+        restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (entries) :', err));
 
     db.collection('navPages').onSnapshot((snap) => {
@@ -508,7 +550,9 @@ function initFirestoreSync() {
         });
         customPagesCache = list;
         refreshCustomNavLinks();
+        const draft = captureDraftFormState();
         render();
+        restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (pages) :', err));
 
     db.collection('chronoEvents').onSnapshot((snap) => {
@@ -518,7 +562,9 @@ function initFirestoreSync() {
             list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
         });
         customChronoCache = list;
+        const draft = captureDraftFormState();
         render();
+        restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (chrono) :', err));
 }
 function getCustomEntriesRaw() {
