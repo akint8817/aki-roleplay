@@ -119,16 +119,6 @@ const ENTRIES = [
         info: { "Type": "Consommable", "Effet": "Invisibilité (6s)", "Rareté": "Commune", "Obtention": "Achat / Loot" },
         body: ["Un classique pour les approches furtives. Se combine bien avec les compétences de type Assassin.",
             "Le temps de recharge après usage est de 45 secondes."] },
-    { id: 'le-dernier-serment', cat: 'quetes', name: 'Le Dernier Serment', tagline: 'Quête principale', rarity: 'rare',
-        summary: "Retrouver Valen Korr et découvrir la vérité sur la chute de la citadelle.",
-        info: { "Type": "Quête principale", "Niveau conseillé": "22", "Récompense": "Lame du Crépuscule", "Région": "Hauteterres" },
-        body: ["Cette quête débute automatiquement après avoir atteint les Hauteterres et parlé à Sylwen.",
-            "Trois issues sont possibles selon les choix du joueur lors de la confrontation finale."] },
-    { id: 'les-cloches-oubliees', cat: 'quetes', name: 'Les Cloches Oubliées', tagline: 'Quête secondaire', rarity: 'common',
-        summary: "Faire sonner les sept cloches disséminées dans le village englouti.",
-        info: { "Type": "Quête secondaire", "Niveau conseillé": "14", "Récompense": "200 PO + relique", "Région": "Marais Bas" },
-        body: ["Une quête d'exploration qui récompense la curiosité : chaque cloche déclenche un court fragment narratif.",
-            "Aucun combat n'est requis, mais deux cloches sont gardées par des pièges."] },
 ];
 /* ---------------- ARCHIVES HALCYON — ARTEFACTS OXIRIENS (dossiers secrets des armes) ---------------- */
 const WEAPONS = [
@@ -438,14 +428,12 @@ let armesFinalUnlocked = false;
 const CATS = {
     personnages: { label: 'Personnages', desc: "Alliés, ennemis, marchands et figures rencontrées au fil de l'aventure." },
     objets: { label: 'Objets & armes', desc: "Équipements, armes, consommables et reliques trouvables dans le jeu." },
-    quetes: { label: 'Quêtes', desc: "Quêtes principales et secondaires, avec conditions et récompenses." },
     lieux: { label: 'Lieux', desc: "Régions, villages et zones explorables de la carte." },
     bestiaire: { label: 'Bestiaire', desc: "Créatures et ennemis, du plus commun au plus redoutable." },
 };
 const ICONS = {
     personnages: '<circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8"/>',
     objets: '<path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z"/>',
-    quetes: '<path d="M9 2h6v4H9z"/><path d="M6 6h12v16H6z"/><line x1="9" y1="11" x2="15" y2="11"/><line x1="9" y1="15" x2="15" y2="15"/>',
     lieux: '<path d="M1 6l7-3 8 3 7-3v15l-7 3-8-3-7 3z"/><line x1="8" y1="3" x2="8" y2="18"/><line x1="16" y1="6" x2="16" y2="21"/>',
     bestiaire: '<path d="M4 12c0-4 3-7 8-7s8 3 8 7-3 7-8 7-8-3-8-7z"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/>',
 };
@@ -456,6 +444,10 @@ function esc(s) {
     const d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+}
+
+function escAttr(s) {
+    return esc(s).replace(/"/g, '&quot;');
 }
 function findEntry(id) { return ENTRIES.find(e => e.id === id); }
 
@@ -479,12 +471,13 @@ function isLoggedIn() {
 let customEntriesCache = [];
 let customPagesCache = [];
 let customChronoCache = [];
+let wfImagesDraft = [];
 
 function getFirestoreDb() {
     return window.db || null;
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfBody', 'wfImageData', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -507,12 +500,6 @@ function restoreDraftFormState(state) {
         const tags = state['__ceTags'].split(',');
         document.querySelectorAll('.ceTagCheck').forEach(c => { c.checked = tags.includes(c.value); });
     }
-    if (state['wfImageData']) {
-        const preview = document.getElementById('wfImagePreview');
-        const removeBtn = document.getElementById('wfImageRemoveBtn');
-        if (preview) { preview.src = state['wfImageData']; preview.style.display = ''; }
-        if (removeBtn) removeBtn.style.display = '';
-    }
     if (state['wfEditId']) {
         const btn = document.getElementById('wfSubmitBtn'); if (btn) btn.textContent = 'Enregistrer les modifications';
         const cancelBtn = document.getElementById('wfCancelBtn'); if (cancelBtn) cancelBtn.style.display = '';
@@ -530,7 +517,8 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', image: data.image || undefined });
+            const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images });
         });
         for (let i = ENTRIES.length - 1; i >= 0; i--) {
             if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -574,7 +562,8 @@ function customEntryToEntry(c) {
     return {
         id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
         quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
-        image: c.image,
+        image: c.images && c.images[0] ? c.images[0].url : undefined,
+        images: c.images,
     };
 }
 function updateAuthUI() {
@@ -669,11 +658,9 @@ function renderEcriture() {
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
       </div>
       <div class="write-row">
-        <label>Image (optionnel, 500 Ko max)</label>
-        <input type="hidden" id="wfImageData" value="">
-        <img id="wfImagePreview" style="display:none; max-width:160px; border-radius:8px; margin-bottom:8px;" alt="">
+        <label>Images (optionnel, 500 Ko max chacune)</label>
+        <div class="write-images-list" id="wfImagesList">${wfImagesListHtml()}</div>
         <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
-        <span class="btn btn-ghost" id="wfImageRemoveBtn" style="display:none; margin-top:6px;" onclick="removeCustomEntryImage()">Retirer l'image</span>
       </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
@@ -727,6 +714,19 @@ function renderEcriture() {
     </div>
   `;
 }
+function wfImagesListHtml() {
+    if (!wfImagesDraft.length) return '';
+    return wfImagesDraft.map((img, i) => `
+    <div class="write-image-item">
+      <img src="${img.url}" alt="">
+      <input type="text" class="write-image-caption" placeholder="Description de cette image (optionnel)" value="${escAttr(img.caption || '')}" oninput="updateWfImageCaption(${i}, this.value)">
+      <span class="btn btn-ghost" onclick="removeWfImage(${i})">Retirer</span>
+    </div>`).join('');
+}
+function refreshWfImagesList() {
+    const wrap = document.getElementById('wfImagesList');
+    if (wrap) wrap.innerHTML = wfImagesListHtml();
+}
 function handleCustomEntryImage(input) {
     const file = input.files && input.files[0];
     if (!file) return;
@@ -737,22 +737,18 @@ function handleCustomEntryImage(input) {
     }
     const reader = new FileReader();
     reader.onload = () => {
-        const dataUrl = reader.result;
-        document.getElementById('wfImageData').value = dataUrl;
-        const preview = document.getElementById('wfImagePreview');
-        if (preview) { preview.src = dataUrl; preview.style.display = ''; }
-        const removeBtn = document.getElementById('wfImageRemoveBtn');
-        if (removeBtn) removeBtn.style.display = '';
+        wfImagesDraft.push({ url: reader.result, caption: '' });
+        input.value = '';
+        refreshWfImagesList();
     };
     reader.readAsDataURL(file);
 }
-function removeCustomEntryImage() {
-    document.getElementById('wfImageData').value = '';
-    document.getElementById('wfImageFile').value = '';
-    const preview = document.getElementById('wfImagePreview');
-    if (preview) { preview.src = ''; preview.style.display = 'none'; }
-    const removeBtn = document.getElementById('wfImageRemoveBtn');
-    if (removeBtn) removeBtn.style.display = 'none';
+function updateWfImageCaption(i, value) {
+    if (wfImagesDraft[i]) wfImagesDraft[i].caption = value;
+}
+function removeWfImage(i) {
+    wfImagesDraft.splice(i, 1);
+    refreshWfImagesList();
 }
 function submitCustomEntry() {
     const catEl = document.getElementById('wfCat');
@@ -760,7 +756,6 @@ function submitCustomEntry() {
     const taglineEl = document.getElementById('wfTagline');
     const quoteEl = document.getElementById('wfQuote');
     const bodyEl = document.getElementById('wfBody');
-    const imageDataEl = document.getElementById('wfImageData');
     const editIdEl = document.getElementById('wfEditId');
     const errEl = document.getElementById('wfError');
     const cat = (catEl?.value || 'personnages');
@@ -768,7 +763,7 @@ function submitCustomEntry() {
     const tagline = (taglineEl?.value || '').trim();
     const quote = (quoteEl?.value || '').trim();
     const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
-    const image = imageDataEl?.value || '';
+    const images = wfImagesDraft.slice();
     const editId = editIdEl?.value || '';
     if (!name || !tagline || body.length === 0) {
         if (errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
@@ -780,14 +775,15 @@ function submitCustomEntry() {
     if (editId) {
         const existing = customEntriesCache.find(c => c.id === editId);
         db.collection('entries').doc(editId).set({
-            cat, name, tagline, quote: quote || null, body, image: image || null,
+            cat, name, tagline, quote: quote || null, body, images,
             author: existing ? existing.author : (getCurrentUser() || 'aki'),
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
         db.collection('entries').add({
-            cat, name, tagline, quote: quote || null, body, image: image || null, author: getCurrentUser() || 'aki',
+            cat, name, tagline, quote: quote || null, body, images, author: getCurrentUser() || 'aki',
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
+    cancelEditCustomEntry();
 }
 function editCustomEntry(id) {
     const entry = customEntriesCache.find(c => c.id === id);
@@ -798,17 +794,8 @@ function editCustomEntry(id) {
     document.getElementById('wfQuote').value = entry.quote || '';
     document.getElementById('wfBody').value = entry.body.join('\n');
     document.getElementById('wfEditId').value = id;
-    document.getElementById('wfImageData').value = entry.image || '';
-    document.getElementById('wfImageFile').value = '';
-    const preview = document.getElementById('wfImagePreview');
-    const removeBtn = document.getElementById('wfImageRemoveBtn');
-    if (entry.image) {
-        if (preview) { preview.src = entry.image; preview.style.display = ''; }
-        if (removeBtn) removeBtn.style.display = '';
-    } else {
-        if (preview) { preview.src = ''; preview.style.display = 'none'; }
-        if (removeBtn) removeBtn.style.display = 'none';
-    }
+    wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
+    refreshWfImagesList();
     const btn = document.getElementById('wfSubmitBtn');
     if (btn) btn.textContent = 'Enregistrer les modifications';
     const cancelBtn = document.getElementById('wfCancelBtn');
@@ -822,7 +809,10 @@ function cancelEditCustomEntry() {
     document.getElementById('wfTagline').value = '';
     document.getElementById('wfQuote').value = '';
     document.getElementById('wfBody').value = '';
-    removeCustomEntryImage();
+    wfImagesDraft = [];
+    refreshWfImagesList();
+    const fileEl = document.getElementById('wfImageFile');
+    if (fileEl) fileEl.value = '';
     const btn = document.getElementById('wfSubmitBtn');
     if (btn) btn.textContent = 'Publier';
     const cancelBtn = document.getElementById('wfCancelBtn');
@@ -1651,7 +1641,7 @@ function renderEntry(id) {
           ${e.body.map((p) => `<p>${esc(p)}</p>`).join('')}
         </div>
         <div class="entry-side">
-          ${e.image ? `<img class="entry-portrait" src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">` : ''}
+          ${entryGalleryHtml(e)}
           <div class="infobox">
             ${Object.entries(e.info).map(([k, v]) => `
               <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
@@ -1660,8 +1650,17 @@ function renderEntry(id) {
         </div>
       </div>
     </div>
-    ${['alice-alfreya'].includes(e.id) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
+    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
+}
+function entryGalleryHtml(e) {
+    const images = (e.images && e.images.length) ? e.images : (e.image ? [{ url: e.image }] : []);
+    if (!images.length) return '';
+    return `<div class="entry-gallery">${images.map(img => `
+    <figure class="entry-gallery-item">
+      <img src="${encodeURI(img.url)}" alt="${esc(e.name)}">
+      ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ''}
+    </figure>`).join('')}</div>`;
 }
 function opParticlesHtml() {
     let out = '';
