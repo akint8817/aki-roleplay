@@ -139,16 +139,6 @@ const ENTRIES = [
         info: { "Type": "Région", "Niveau": "10-16", "Climat": "Humide", "Points d'intérêt": "3" },
         body: ["Le Marais Bas fut englouti il y a deux générations lors de la rupture du grand barrage.",
             "On y trouve encore des habitants réfugiés sur les hauteurs, prêts à raconter leur histoire."] },
-    { id: 'wyrme-des-brumes', cat: 'bestiaire', name: 'Wyrme des Brumes', tagline: 'Créature — Boss régional', rarity: 'rare',
-        summary: "Serpent draconique qui se dissout dans le brouillard entre deux attaques.",
-        info: { "Type": "Boss", "Niveau": "27", "Faiblesse": "Feu", "Zone": "Marais Bas" },
-        body: ["Le Wyrme des Brumes alterne des phases visibles et invisibles, rendant le timing des esquives essentiel.",
-            "Vaincu, il laisse tomber des écailles utilisées dans la forge d'armures légères."] },
-    { id: 'gobelours', cat: 'bestiaire', name: 'Gobelours', tagline: 'Créature commune', rarity: 'common',
-        summary: "Petit prédateur territorial que l'on croise dans presque toutes les forêts.",
-        info: { "Type": "Ennemi commun", "Niveau": "1-10", "Faiblesse": "Aucune", "Zone": "Toutes forêts" },
-        body: ["Généralement rencontré en groupe de 2 à 4, le gobelours n'est dangereux qu'en nombre.",
-            "Bonne source de peaux légères en début de partie."] },
     { id: 'foret-des-cendres', cat: 'lieux', name: 'Forêt des Cendres', tagline: 'Forêt calcinée', rarity: 'common',
         summary: "Une forêt figée depuis l'incendie rituel, où les arbres noircis abritent une faune étrange.",
         info: { "Type": "Région", "Niveau": "16-24", "Climat": "Sec", "Points d'intérêt": "2" },
@@ -508,6 +498,7 @@ function isLoggedIn() {
 
 let customEntriesCache = [];
 let customPagesCache = [];
+let customChronoCache = [];
 
 function getFirestoreDb() {
     return window.db || null;
@@ -519,7 +510,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki' });
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', image: data.image || undefined });
         });
         for (let i = ENTRIES.length - 1; i >= 0; i--) {
             if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -539,6 +530,16 @@ function initFirestoreSync() {
         refreshCustomNavLinks();
         render();
     }, (err) => console.error('Firestore (pages) :', err));
+
+    db.collection('chronoEvents').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
+        });
+        customChronoCache = list;
+        render();
+    }, (err) => console.error('Firestore (chrono) :', err));
 }
 function getCustomEntriesRaw() {
     return customEntriesCache;
@@ -547,6 +548,7 @@ function customEntryToEntry(c) {
     return {
         id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
         quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
+        image: c.image,
     };
 }
 function updateAuthUI() {
@@ -615,8 +617,8 @@ function renderEcriture() {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Écriture</div>
     <h1 style="font-size:26px; margin-bottom:6px;">Espace d'écriture</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
-      Crée de nouvelles pages de lore. Elles s'ajoutent directement dans la catégorie choisie —
-      mais uniquement sur ce navigateur (pas de serveur, donc pas encore partagé avec les autres visiteurs).
+      Crée de nouvelles pages de lore. Elles s'ajoutent directement dans la catégorie choisie
+      et sont visibles par tous les visiteurs du site.
     </p>
     <div class="write-form">
       <input type="hidden" id="wfEditId" value="">
@@ -640,6 +642,13 @@ function renderEcriture() {
         <label>Texte (un paragraphe par ligne)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
       </div>
+      <div class="write-row">
+        <label>Image (optionnel, 500 Ko max)</label>
+        <input type="hidden" id="wfImageData" value="">
+        <img id="wfImagePreview" style="display:none; max-width:160px; border-radius:8px; margin-bottom:8px;" alt="">
+        <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
+        <span class="btn btn-ghost" id="wfImageRemoveBtn" style="display:none; margin-top:6px;" onclick="removeCustomEntryImage()">Retirer l'image</span>
+      </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
       <span class="btn btn-ghost" id="wfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditCustomEntry()">Annuler</span>
@@ -658,7 +667,66 @@ function renderEcriture() {
           </div>
         </div>`).join('') : `<div class="empty-state">Aucune page écrite pour l'instant.</div>`}
     </div>
+
+    <h1 id="chronoWriteForm" style="font-size:26px; margin:44px 0 6px;">Chronologie</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Ajoute un événement à la frise chronologique du monde. Le rendu visuel (numéro, position sur la frise, style des tags)
+      est généré automatiquement — tu n'as qu'à remplir la date, le titre, les catégories et le texte.
+    </p>
+    <div class="write-form">
+      <input type="hidden" id="ceEditId" value="">
+      <div class="write-row">
+        <label>Date / Époque</label>
+        <input id="ceDate" type="text" placeholder="Ex : + 25">
+      </div>
+      <div class="write-row">
+        <label>Titre</label>
+        <input id="ceTitle" type="text" placeholder="Nom de l'événement">
+      </div>
+      <div class="write-row">
+        <label>Catégories</label>
+        <div class="chrono-tag-checks">
+          ${Object.entries(CHRONO_TAGS).map(([key, t]) => `
+            <label class="chrono-tag-check"><input type="checkbox" value="${key}" class="ceTagCheck"> ${esc(t.label)}</label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par ligne)</label>
+        <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
+      </div>
+      <div class="write-error" id="ceError"></div>
+      <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
+      <span class="btn btn-ghost" id="ceCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditChronoEvent()">Annuler</span>
+    </div>
   `;
+}
+function handleCustomEntryImage(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > 500 * 1024) {
+        alert('Image trop lourde (500 Ko maximum).');
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = reader.result;
+        document.getElementById('wfImageData').value = dataUrl;
+        const preview = document.getElementById('wfImagePreview');
+        if (preview) { preview.src = dataUrl; preview.style.display = ''; }
+        const removeBtn = document.getElementById('wfImageRemoveBtn');
+        if (removeBtn) removeBtn.style.display = '';
+    };
+    reader.readAsDataURL(file);
+}
+function removeCustomEntryImage() {
+    document.getElementById('wfImageData').value = '';
+    document.getElementById('wfImageFile').value = '';
+    const preview = document.getElementById('wfImagePreview');
+    if (preview) { preview.src = ''; preview.style.display = 'none'; }
+    const removeBtn = document.getElementById('wfImageRemoveBtn');
+    if (removeBtn) removeBtn.style.display = 'none';
 }
 function submitCustomEntry() {
     const catEl = document.getElementById('wfCat');
@@ -666,6 +734,7 @@ function submitCustomEntry() {
     const taglineEl = document.getElementById('wfTagline');
     const quoteEl = document.getElementById('wfQuote');
     const bodyEl = document.getElementById('wfBody');
+    const imageDataEl = document.getElementById('wfImageData');
     const editIdEl = document.getElementById('wfEditId');
     const errEl = document.getElementById('wfError');
     const cat = (catEl?.value || 'personnages');
@@ -673,6 +742,7 @@ function submitCustomEntry() {
     const tagline = (taglineEl?.value || '').trim();
     const quote = (quoteEl?.value || '').trim();
     const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const image = imageDataEl?.value || '';
     const editId = editIdEl?.value || '';
     if (!name || !tagline || body.length === 0) {
         if (errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
@@ -684,11 +754,12 @@ function submitCustomEntry() {
     if (editId) {
         const existing = customEntriesCache.find(c => c.id === editId);
         db.collection('entries').doc(editId).set({
-            cat, name, tagline, quote: quote || null, body, author: existing ? existing.author : (getCurrentUser() || 'aki'),
+            cat, name, tagline, quote: quote || null, body, image: image || null,
+            author: existing ? existing.author : (getCurrentUser() || 'aki'),
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
         db.collection('entries').add({
-            cat, name, tagline, quote: quote || null, body, author: getCurrentUser() || 'aki',
+            cat, name, tagline, quote: quote || null, body, image: image || null, author: getCurrentUser() || 'aki',
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
 }
@@ -701,6 +772,17 @@ function editCustomEntry(id) {
     document.getElementById('wfQuote').value = entry.quote || '';
     document.getElementById('wfBody').value = entry.body.join('\n');
     document.getElementById('wfEditId').value = id;
+    document.getElementById('wfImageData').value = entry.image || '';
+    document.getElementById('wfImageFile').value = '';
+    const preview = document.getElementById('wfImagePreview');
+    const removeBtn = document.getElementById('wfImageRemoveBtn');
+    if (entry.image) {
+        if (preview) { preview.src = entry.image; preview.style.display = ''; }
+        if (removeBtn) removeBtn.style.display = '';
+    } else {
+        if (preview) { preview.src = ''; preview.style.display = 'none'; }
+        if (removeBtn) removeBtn.style.display = 'none';
+    }
     const btn = document.getElementById('wfSubmitBtn');
     if (btn) btn.textContent = 'Enregistrer les modifications';
     const cancelBtn = document.getElementById('wfCancelBtn');
@@ -714,6 +796,7 @@ function cancelEditCustomEntry() {
     document.getElementById('wfTagline').value = '';
     document.getElementById('wfQuote').value = '';
     document.getElementById('wfBody').value = '';
+    removeCustomEntryImage();
     const btn = document.getElementById('wfSubmitBtn');
     if (btn) btn.textContent = 'Publier';
     const cancelBtn = document.getElementById('wfCancelBtn');
@@ -725,6 +808,73 @@ function deleteCustomEntry(id) {
     const db = getFirestoreDb();
     if (!db) return;
     db.collection('entries').doc(id).delete();
+}
+
+function submitChronoEvent() {
+    const dateEl = document.getElementById('ceDate');
+    const titleEl = document.getElementById('ceTitle');
+    const bodyEl = document.getElementById('ceBody');
+    const editIdEl = document.getElementById('ceEditId');
+    const errEl = document.getElementById('ceError');
+    const date = (dateEl?.value || '').trim();
+    const title = (titleEl?.value || '').trim();
+    const tags = Array.from(document.querySelectorAll('.ceTagCheck:checked')).map(c => c.value);
+    const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const editId = editIdEl?.value || '';
+    if (!date || !title || body.length === 0) {
+        if (errEl) errEl.textContent = 'Remplis au moins la date, le titre et le texte.';
+        return;
+    }
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    if (errEl) errEl.textContent = '';
+    if (editId) {
+        db.collection('chronoEvents').doc(editId).set({ date, title, tags, body })
+            .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+    } else {
+        db.collection('chronoEvents').add({ date, title, tags, body })
+            .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+    }
+    cancelEditChronoEvent();
+}
+function editChronoEvent(id) {
+    const ev = customChronoCache.find(c => c.id === id);
+    if (!ev) return;
+    navigate('ecriture');
+    setTimeout(() => {
+        document.getElementById('ceDate').value = ev.date;
+        document.getElementById('ceTitle').value = ev.title;
+        document.getElementById('ceBody').value = ev.body.join('\n');
+        document.querySelectorAll('.ceTagCheck').forEach(c => { c.checked = ev.tags.includes(c.value); });
+        document.getElementById('ceEditId').value = id;
+        const btn = document.getElementById('ceSubmitBtn');
+        if (btn) btn.textContent = 'Enregistrer les modifications';
+        const cancelBtn = document.getElementById('ceCancelBtn');
+        if (cancelBtn) cancelBtn.style.display = '';
+        document.getElementById('chronoWriteForm')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }, 60);
+}
+function cancelEditChronoEvent() {
+    const dateEl = document.getElementById('ceDate');
+    const titleEl = document.getElementById('ceTitle');
+    const bodyEl = document.getElementById('ceBody');
+    const editIdEl = document.getElementById('ceEditId');
+    if (dateEl) dateEl.value = '';
+    if (titleEl) titleEl.value = '';
+    if (bodyEl) bodyEl.value = '';
+    if (editIdEl) editIdEl.value = '';
+    document.querySelectorAll('.ceTagCheck').forEach(c => { c.checked = false; });
+    const btn = document.getElementById('ceSubmitBtn');
+    if (btn) btn.textContent = "Publier l'événement";
+    const cancelBtn = document.getElementById('ceCancelBtn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+    const errEl = document.getElementById('ceError');
+    if (errEl) errEl.textContent = '';
+}
+function deleteChronoEvent(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('chronoEvents').doc(id).delete();
 }
 
 const AVATAR_KEY = 'akiAvatar';
@@ -1718,6 +1868,22 @@ const CHRONO_EVENTS = [
             "Puis elle disparaît.",
         ] },
 ];
+function toRoman(num) {
+    const map = [[1000, 'M'], [900, 'CM'], [500, 'D'], [400, 'CD'], [100, 'C'], [90, 'XC'], [50, 'L'], [40, 'XL'], [10, 'X'], [9, 'IX'], [5, 'V'], [4, 'IV'], [1, 'I']];
+    let res = '';
+    for (const [val, sym] of map) {
+        while (num >= val) { res += sym; num -= val; }
+    }
+    return res;
+}
+function getAllChronoEvents() {
+    const custom = customChronoCache.map(c => ({
+        id: c.id, numeral: '', date: c.date, title: c.title, tags: c.tags, body: c.body,
+    }));
+    const merged = [...CHRONO_EVENTS, ...custom];
+    merged.forEach((ev, i) => { ev.numeral = toRoman(i + 1); });
+    return merged;
+}
 function chronoTagHtml(key) {
     const t = CHRONO_TAGS[key];
     if (!t)
@@ -1731,8 +1897,15 @@ function chronoBodyHtml(body) {
 }
 function renderChronologie() {
     const legend = Object.keys(CHRONO_TAGS).map(chronoTagHtml).join('');
-    const rows = CHRONO_EVENTS.map((ev, i) => {
+    const loggedIn = isLoggedIn();
+    const rows = getAllChronoEvents().map((ev, i) => {
         const side = i % 2 === 0 ? 'chrono-left' : 'chrono-right';
+        const isCustom = customChronoCache.some(c => c.id === ev.id);
+        const actions = (loggedIn && isCustom) ? `
+        <div class="chrono-actions">
+          <span class="btn btn-ghost" onclick="editChronoEvent('${ev.id}')">Modifier</span>
+          <span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>
+        </div>` : '';
         return `
     <div class="chrono-row ${side}">
       <div class="chrono-dot"></div>
@@ -1745,6 +1918,7 @@ function renderChronologie() {
         <h3 class="chrono-card-title">${esc(ev.title)}</h3>
         <div class="chrono-body" id="chronoBody-${ev.id}">${chronoBodyHtml(ev.body)}</div>
         <button type="button" class="chrono-toggle" onclick="toggleChronoCard(this)">Ouvrir le dossier ›</button>
+        ${actions}
       </div>
     </div>`;
     }).join('');
@@ -1756,6 +1930,7 @@ function renderChronologie() {
         <span>— Fragment retrouvé dans les ruines de l'ancienne capitale</span>
       </div>
       <h1 class="chrono-title">OXIRI — Frise chronologique du monde</h1>
+      ${loggedIn ? `<div style="margin-bottom:16px;"><span class="btn btn-primary" onclick="navigate('ecriture'); setTimeout(()=>document.getElementById('chronoWriteForm')?.scrollIntoView({behavior:'smooth', block:'start'}), 60);">+ Ajouter un événement</span></div>` : ''}
       <div class="chrono-legend">${legend}</div>
       <div class="chrono-timeline">
         <div class="chrono-line"></div>

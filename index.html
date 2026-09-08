@@ -1785,6 +1785,15 @@ h1,h2,h3,h4{
 }
 .chrono-toggle:hover{ color:#6fe0d8; }
 
+.chrono-actions{ display:flex; gap:8px; margin-top:12px; }
+
+.chrono-tag-checks{ display:flex; flex-wrap:wrap; gap:10px 16px; }
+.chrono-tag-check{
+  display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim);
+  cursor:pointer; user-select:none;
+}
+.chrono-tag-check input{ cursor:pointer; }
+
 .chrono-tag-popover{
   --tagclr: #3ec9c0;
   position:absolute; z-index:400; width:260px;
@@ -2845,11 +2854,6 @@ footer.page-foot{
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 12c0-4 3-7 8-7s8 3 8 7-3 7-8 7-8-3-8-7z"/><circle cx="9" cy="11" r="1"/><circle cx="15" cy="11" r="1"/></svg>
         Bestiaire
       </a>
-    </div>
-
-    <div class="sidebar-foot">
-      Site généré comme point de départ.<br>
-      Remplace le nom, les catégories et les fiches par ton propre jeu.
     </div>
   </aside>
 

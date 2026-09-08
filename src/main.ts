@@ -217,16 +217,6 @@ const ENTRIES: Entry[] = [
     info:{ "Type":"Région", "Niveau":"10-16", "Climat":"Humide", "Points d'intérêt":"3" },
     body:["Le Marais Bas fut englouti il y a deux générations lors de la rupture du grand barrage.",
           "On y trouve encore des habitants réfugiés sur les hauteurs, prêts à raconter leur histoire."]},
-  {id:'wyrme-des-brumes', cat:'bestiaire', name:'Wyrme des Brumes', tagline:'Créature — Boss régional', rarity:'rare',
-    summary:"Serpent draconique qui se dissout dans le brouillard entre deux attaques.",
-    info:{ "Type":"Boss", "Niveau":"27", "Faiblesse":"Feu", "Zone":"Marais Bas" },
-    body:["Le Wyrme des Brumes alterne des phases visibles et invisibles, rendant le timing des esquives essentiel.",
-          "Vaincu, il laisse tomber des écailles utilisées dans la forge d'armures légères."]},
-  {id:'gobelours', cat:'bestiaire', name:'Gobelours', tagline:'Créature commune', rarity:'common',
-    summary:"Petit prédateur territorial que l'on croise dans presque toutes les forêts.",
-    info:{ "Type":"Ennemi commun", "Niveau":"1-10", "Faiblesse":"Aucune", "Zone":"Toutes forêts" },
-    body:["Généralement rencontré en groupe de 2 à 4, le gobelours n'est dangereux qu'en nombre.",
-          "Bonne source de peaux légères en début de partie."]},
   {id:'foret-des-cendres', cat:'lieux', name:'Forêt des Cendres', tagline:'Forêt calcinée', rarity:'common',
     summary:"Une forêt figée depuis l'incendie rituel, où les arbres noircis abritent une faune étrange.",
     info:{ "Type":"Région", "Niveau":"16-24", "Climat":"Sec", "Points d'intérêt":"2" },
@@ -597,6 +587,7 @@ interface CustomEntry {
   quote?: string;
   body: string[];
   author: string;
+  image?: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -621,6 +612,7 @@ function isLoggedIn(): boolean {
 /* ---------------- Firestore : pages écrites partagées entre tous les visiteurs ---------------- */
 let customEntriesCache: CustomEntry[] = [];
 let customPagesCache: CustomNavPage[] = [];
+let customChronoCache: CustomChronoEvent[] = [];
 
 function getFirestoreDb(): any {
   return (window as any).db || null;
@@ -633,7 +625,7 @@ function initFirestoreSync(): void {
     const list: CustomEntry[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki' });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', image: data.image || undefined });
     });
     for(let i = ENTRIES.length - 1; i >= 0; i--){
       if(ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -653,6 +645,16 @@ function initFirestoreSync(): void {
     refreshCustomNavLinks();
     render();
   }, (err: any) => console.error('Firestore (pages) :', err));
+
+  db.collection('chronoEvents').onSnapshot((snap: any) => {
+    const list: CustomChronoEvent[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
+    });
+    customChronoCache = list;
+    render();
+  }, (err: any) => console.error('Firestore (chrono) :', err));
 }
 
 function getCustomEntriesRaw(): CustomEntry[] {
@@ -663,6 +665,7 @@ function customEntryToEntry(c: CustomEntry): Entry {
   return {
     id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
     quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
+    image: c.image,
   };
 }
 
@@ -763,6 +766,13 @@ function renderEcriture(): string {
         <label>Texte (un paragraphe par ligne)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
       </div>
+      <div class="write-row">
+        <label>Image (optionnel, 500 Ko max)</label>
+        <input type="hidden" id="wfImageData" value="">
+        <img id="wfImagePreview" style="display:none; max-width:160px; border-radius:8px; margin-bottom:8px;" alt="">
+        <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
+        <span class="btn btn-ghost" id="wfImageRemoveBtn" style="display:none; margin-top:6px;" onclick="removeCustomEntryImage()">Retirer l'image</span>
+      </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
       <span class="btn btn-ghost" id="wfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditCustomEntry()">Annuler</span>
@@ -781,7 +791,68 @@ function renderEcriture(): string {
           </div>
         </div>`).join('') : `<div class="empty-state">Aucune page écrite pour l'instant.</div>`}
     </div>
+
+    <h1 id="chronoWriteForm" style="font-size:26px; margin:44px 0 6px;">Chronologie</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Ajoute un événement à la frise chronologique du monde. Le rendu visuel (numéro, position sur la frise, style des tags)
+      est généré automatiquement — tu n'as qu'à remplir la date, le titre, les catégories et le texte.
+    </p>
+    <div class="write-form">
+      <input type="hidden" id="ceEditId" value="">
+      <div class="write-row">
+        <label>Date / Époque</label>
+        <input id="ceDate" type="text" placeholder="Ex : + 25">
+      </div>
+      <div class="write-row">
+        <label>Titre</label>
+        <input id="ceTitle" type="text" placeholder="Nom de l'événement">
+      </div>
+      <div class="write-row">
+        <label>Catégories</label>
+        <div class="chrono-tag-checks">
+          ${Object.entries(CHRONO_TAGS).map(([key,t])=>`
+            <label class="chrono-tag-check"><input type="checkbox" value="${key}" class="ceTagCheck"> ${esc(t.label)}</label>
+          `).join('')}
+        </div>
+      </div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par ligne)</label>
+        <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
+      </div>
+      <div class="write-error" id="ceError"></div>
+      <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
+      <span class="btn btn-ghost" id="ceCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditChronoEvent()">Annuler</span>
+    </div>
   `;
+}
+
+function handleCustomEntryImage(input: HTMLInputElement): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(file.size > 500*1024){
+    alert('Image trop lourde (500 Ko maximum).');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result as string;
+    (document.getElementById('wfImageData') as HTMLInputElement).value = dataUrl;
+    const preview = document.getElementById('wfImagePreview') as HTMLImageElement | null;
+    if(preview){ preview.src = dataUrl; preview.style.display = ''; }
+    const removeBtn = document.getElementById('wfImageRemoveBtn');
+    if(removeBtn) removeBtn.style.display = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeCustomEntryImage(): void {
+  (document.getElementById('wfImageData') as HTMLInputElement).value = '';
+  (document.getElementById('wfImageFile') as HTMLInputElement).value = '';
+  const preview = document.getElementById('wfImagePreview') as HTMLImageElement | null;
+  if(preview){ preview.src = ''; preview.style.display = 'none'; }
+  const removeBtn = document.getElementById('wfImageRemoveBtn');
+  if(removeBtn) removeBtn.style.display = 'none';
 }
 
 function submitCustomEntry(): void {
@@ -790,6 +861,7 @@ function submitCustomEntry(): void {
   const taglineEl = document.getElementById('wfTagline') as HTMLInputElement | null;
   const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
   const bodyEl = document.getElementById('wfBody') as HTMLTextAreaElement | null;
+  const imageDataEl = document.getElementById('wfImageData') as HTMLInputElement | null;
   const editIdEl = document.getElementById('wfEditId') as HTMLInputElement | null;
   const errEl = document.getElementById('wfError');
   const cat = (catEl?.value || 'personnages') as CategoryId;
@@ -797,6 +869,7 @@ function submitCustomEntry(): void {
   const tagline = (taglineEl?.value || '').trim();
   const quote = (quoteEl?.value || '').trim();
   const body = (bodyEl?.value || '').split('\n').map(s=>s.trim()).filter(Boolean);
+  const image = imageDataEl?.value || '';
   const editId = editIdEl?.value || '';
   if(!name || !tagline || body.length === 0){
     if(errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
@@ -808,11 +881,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, body, author: existing ? existing.author : (getCurrentUser() || 'aki'),
+      cat, name, tagline, quote: quote || null, body, image: image || null,
+      author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, body, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, body, image: image || null, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
 }
@@ -826,6 +900,17 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.join('\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
+  (document.getElementById('wfImageData') as HTMLInputElement).value = entry.image || '';
+  (document.getElementById('wfImageFile') as HTMLInputElement).value = '';
+  const preview = document.getElementById('wfImagePreview') as HTMLImageElement | null;
+  const removeBtn = document.getElementById('wfImageRemoveBtn');
+  if(entry.image){
+    if(preview){ preview.src = entry.image; preview.style.display = ''; }
+    if(removeBtn) removeBtn.style.display = '';
+  } else {
+    if(preview){ preview.src = ''; preview.style.display = 'none'; }
+    if(removeBtn) removeBtn.style.display = 'none';
+  }
   const btn = document.getElementById('wfSubmitBtn');
   if(btn) btn.textContent = 'Enregistrer les modifications';
   const cancelBtn = document.getElementById('wfCancelBtn');
@@ -840,6 +925,7 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfTagline') as HTMLInputElement).value = '';
   (document.getElementById('wfQuote') as HTMLInputElement).value = '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
+  removeCustomEntryImage();
   const btn = document.getElementById('wfSubmitBtn');
   if(btn) btn.textContent = 'Publier';
   const cancelBtn = document.getElementById('wfCancelBtn');
@@ -852,6 +938,76 @@ function deleteCustomEntry(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
   db.collection('entries').doc(id).delete();
+}
+
+function submitChronoEvent(): void {
+  const dateEl = document.getElementById('ceDate') as HTMLInputElement | null;
+  const titleEl = document.getElementById('ceTitle') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('ceBody') as HTMLTextAreaElement | null;
+  const editIdEl = document.getElementById('ceEditId') as HTMLInputElement | null;
+  const errEl = document.getElementById('ceError');
+  const date = (dateEl?.value || '').trim();
+  const title = (titleEl?.value || '').trim();
+  const tags = Array.from(document.querySelectorAll<HTMLInputElement>('.ceTagCheck:checked')).map(c => c.value);
+  const body = (bodyEl?.value || '').split('\n').map(s=>s.trim()).filter(Boolean);
+  const editId = editIdEl?.value || '';
+  if(!date || !title || body.length === 0){
+    if(errEl) errEl.textContent = 'Remplis au moins la date, le titre et le texte.';
+    return;
+  }
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  if(errEl) errEl.textContent = '';
+  if(editId){
+    db.collection('chronoEvents').doc(editId).set({ date, title, tags, body })
+      .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+  } else {
+    db.collection('chronoEvents').add({ date, title, tags, body })
+      .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+  }
+  cancelEditChronoEvent();
+}
+
+function editChronoEvent(id: string): void {
+  const ev = customChronoCache.find(c=>c.id===id);
+  if(!ev) return;
+  navigate('ecriture');
+  setTimeout(() => {
+    (document.getElementById('ceDate') as HTMLInputElement).value = ev.date;
+    (document.getElementById('ceTitle') as HTMLInputElement).value = ev.title;
+    (document.getElementById('ceBody') as HTMLTextAreaElement).value = ev.body.join('\n');
+    document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c => { c.checked = ev.tags.includes(c.value); });
+    (document.getElementById('ceEditId') as HTMLInputElement).value = id;
+    const btn = document.getElementById('ceSubmitBtn');
+    if(btn) btn.textContent = 'Enregistrer les modifications';
+    const cancelBtn = document.getElementById('ceCancelBtn');
+    if(cancelBtn) cancelBtn.style.display = '';
+    document.getElementById('chronoWriteForm')?.scrollIntoView({ behavior:'smooth', block:'start' });
+  }, 60);
+}
+
+function cancelEditChronoEvent(): void {
+  const dateEl = document.getElementById('ceDate') as HTMLInputElement | null;
+  const titleEl = document.getElementById('ceTitle') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('ceBody') as HTMLTextAreaElement | null;
+  const editIdEl = document.getElementById('ceEditId') as HTMLInputElement | null;
+  if(dateEl) dateEl.value = '';
+  if(titleEl) titleEl.value = '';
+  if(bodyEl) bodyEl.value = '';
+  if(editIdEl) editIdEl.value = '';
+  document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c => { c.checked = false; });
+  const btn = document.getElementById('ceSubmitBtn');
+  if(btn) btn.textContent = "Publier l'événement";
+  const cancelBtn = document.getElementById('ceCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = 'none';
+  const errEl = document.getElementById('ceError');
+  if(errEl) errEl.textContent = '';
+}
+
+function deleteChronoEvent(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('chronoEvents').doc(id).delete();
 }
 
 /* ---------------- COMPTE — photo de profil et onglets de navigation personnalisés ---------------- */
@@ -1796,6 +1952,14 @@ interface ChronoEvent {
   body: ChronoBodyItem[];
 }
 
+interface CustomChronoEvent {
+  id: string;
+  date: string;
+  title: string;
+  tags: string[];
+  body: string[];
+}
+
 const CHRONO_EVENTS: ChronoEvent[] = [
   { id:'silence', numeral:'I', date:'– ???', title:"L'Âge du Silence", tags:['mystere','oxiri'], body:[
     "Avant les royaumes, avant les cités, avant même que l'humanité ne maîtrise la magie, le monde existait déjà.",
@@ -1906,6 +2070,24 @@ const CHRONO_EVENTS: ChronoEvent[] = [
   ]},
 ];
 
+function toRoman(num: number): string {
+  const map: [number,string][] = [[1000,'M'],[900,'CM'],[500,'D'],[400,'CD'],[100,'C'],[90,'XC'],[50,'L'],[40,'XL'],[10,'X'],[9,'IX'],[5,'V'],[4,'IV'],[1,'I']];
+  let res = '';
+  for(const [val,sym] of map){
+    while(num >= val){ res += sym; num -= val; }
+  }
+  return res;
+}
+
+function getAllChronoEvents(): ChronoEvent[] {
+  const custom: ChronoEvent[] = customChronoCache.map(c => ({
+    id: c.id, numeral: '', date: c.date, title: c.title, tags: c.tags, body: c.body,
+  }));
+  const merged = [...CHRONO_EVENTS, ...custom];
+  merged.forEach((ev, i) => { ev.numeral = toRoman(i+1); });
+  return merged;
+}
+
 function chronoTagHtml(key: string): string {
   const t = CHRONO_TAGS[key];
   if(!t) return '';
@@ -1921,8 +2103,15 @@ function chronoBodyHtml(body: ChronoBodyItem[]): string {
 
 function renderChronologie(): string {
   const legend = Object.keys(CHRONO_TAGS).map(chronoTagHtml).join('');
-  const rows = CHRONO_EVENTS.map((ev, i) => {
+  const loggedIn = isLoggedIn();
+  const rows = getAllChronoEvents().map((ev, i) => {
     const side = i % 2 === 0 ? 'chrono-left' : 'chrono-right';
+    const isCustom = customChronoCache.some(c => c.id === ev.id);
+    const actions = (loggedIn && isCustom) ? `
+        <div class="chrono-actions">
+          <span class="btn btn-ghost" onclick="editChronoEvent('${ev.id}')">Modifier</span>
+          <span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>
+        </div>` : '';
     return `
     <div class="chrono-row ${side}">
       <div class="chrono-dot"></div>
@@ -1935,6 +2124,7 @@ function renderChronologie(): string {
         <h3 class="chrono-card-title">${esc(ev.title)}</h3>
         <div class="chrono-body" id="chronoBody-${ev.id}">${chronoBodyHtml(ev.body)}</div>
         <button type="button" class="chrono-toggle" onclick="toggleChronoCard(this)">Ouvrir le dossier ›</button>
+        ${actions}
       </div>
     </div>`;
   }).join('');
@@ -1947,6 +2137,7 @@ function renderChronologie(): string {
         <span>— Fragment retrouvé dans les ruines de l'ancienne capitale</span>
       </div>
       <h1 class="chrono-title">OXIRI — Frise chronologique du monde</h1>
+      ${loggedIn ? `<div style="margin-bottom:16px;"><span class="btn btn-primary" onclick="navigate('ecriture'); setTimeout(()=>document.getElementById('chronoWriteForm')?.scrollIntoView({behavior:'smooth', block:'start'}), 60);">+ Ajouter un événement</span></div>` : ''}
       <div class="chrono-legend">${legend}</div>
       <div class="chrono-timeline">
         <div class="chrono-line"></div>
