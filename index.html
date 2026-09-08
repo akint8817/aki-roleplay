@@ -2858,6 +2858,24 @@ footer.page-foot{
   </main>
 </div>
 
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script>
+  var firebaseConfig = {
+    apiKey: "AIzaSyBU6WM0eubehyn_928R6SE8LkjaPHKoL8M",
+    authDomain: "aki-wingless-roleplay.firebaseapp.com",
+    projectId: "aki-wingless-roleplay",
+    storageBucket: "aki-wingless-roleplay.firebasestorage.app",
+    messagingSenderId: "622159579008",
+    appId: "1:622159579008:web:887b1ee697ba90267fe365"
+  };
+  try {
+    firebase.initializeApp(firebaseConfig);
+    window.db = firebase.firestore();
+  } catch(e) {
+    console.error('Firebase indisponible :', e);
+  }
+</script>
 <script src="dist/main.js"></script>
 </body>
 </html>

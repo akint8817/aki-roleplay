@@ -494,7 +494,6 @@ const AUTH_USERS = {
     'aki': 'yw3547',
     'wingless': 'aurora',
 };
-const CUSTOM_ENTRIES_KEY = 'akiCustomEntries';
 
 function capitalize(s) {
     return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
@@ -506,26 +505,49 @@ function getCurrentUser() {
 function isLoggedIn() {
     return getCurrentUser() !== null;
 }
-function getCustomEntriesRaw() {
-    try {
-        const list = JSON.parse(localStorage.getItem(CUSTOM_ENTRIES_KEY) || '[]');
-        return list.map(c => ({ ...c, author: c.author || 'aki' }));
-    }
-    catch { return []; }
+
+let customEntriesCache = [];
+let customPagesCache = [];
+
+function getFirestoreDb() {
+    return window.db || null;
 }
-function saveCustomEntriesRaw(list) {
-    localStorage.setItem(CUSTOM_ENTRIES_KEY, JSON.stringify(list));
+function initFirestoreSync() {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('entries').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki' });
+        });
+        for (let i = ENTRIES.length - 1; i >= 0; i--) {
+            if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
+        }
+        list.forEach(c => ENTRIES.push(customEntryToEntry(c)));
+        customEntriesCache = list;
+        render();
+    }, (err) => console.error('Firestore (entries) :', err));
+
+    db.collection('navPages').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, label: data.label, body: data.body || [] });
+        });
+        customPagesCache = list;
+        refreshCustomNavLinks();
+        render();
+    }, (err) => console.error('Firestore (pages) :', err));
+}
+function getCustomEntriesRaw() {
+    return customEntriesCache;
 }
 function customEntryToEntry(c) {
     return {
-        id: c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
+        id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
         quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
     };
-}
-function loadCustomEntries() {
-    getCustomEntriesRaw().forEach(c => {
-        if (!ENTRIES.find(e => e.id === c.id)) ENTRIES.push(customEntryToEntry(c));
-    });
 }
 function updateAuthUI() {
     const loggedIn = isLoggedIn();
@@ -628,7 +650,7 @@ function renderEcriture() {
       ${mine.length ? mine.map(m => `
         <div class="card" style="cursor:default;">
           <div class="card-top">${iconSvg(m.cat)}<span class="tag common">${esc(CATS[m.cat].label)}</span></div>
-          <h3 onclick="navigate('entry-${m.id}')" style="cursor:pointer;">${esc(m.name)}</h3>
+          <h3 onclick="navigate('entry-custom-${m.id}')" style="cursor:pointer;">${esc(m.name)}</h3>
           <p>${esc(m.tagline)}</p>
           <div style="display:flex; gap:8px; margin-top:10px;">
             <span class="btn btn-ghost" onclick="editCustomEntry('${m.id}')">Modifier</span>
@@ -656,27 +678,22 @@ function submitCustomEntry() {
         if (errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
         return;
     }
-    const list = getCustomEntriesRaw();
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    if (errEl) errEl.textContent = '';
     if (editId) {
-        const idx = list.findIndex(c => c.id === editId);
-        if (idx >= 0) {
-            const updated = { id: editId, cat, name, tagline, quote: quote || undefined, body, author: list[idx].author };
-            list[idx] = updated;
-            saveCustomEntriesRaw(list);
-            const eIdx = ENTRIES.findIndex(e => e.id === editId);
-            if (eIdx >= 0) ENTRIES[eIdx] = customEntryToEntry(updated);
-        }
+        const existing = customEntriesCache.find(c => c.id === editId);
+        db.collection('entries').doc(editId).set({
+            cat, name, tagline, quote: quote || null, body, author: existing ? existing.author : (getCurrentUser() || 'aki'),
+        }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
-        const id = 'custom-' + slugify(name) + '-' + Date.now().toString(36);
-        const entry = { id, cat, name, tagline, quote: quote || undefined, body, author: getCurrentUser() || 'aki' };
-        list.push(entry);
-        saveCustomEntriesRaw(list);
-        ENTRIES.push(customEntryToEntry(entry));
+        db.collection('entries').add({
+            cat, name, tagline, quote: quote || null, body, author: getCurrentUser() || 'aki',
+        }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
-    render();
 }
 function editCustomEntry(id) {
-    const entry = getCustomEntriesRaw().find(c => c.id === id);
+    const entry = customEntriesCache.find(c => c.id === id);
     if (!entry) return;
     document.getElementById('wfCat').value = entry.cat;
     document.getElementById('wfName').value = entry.name;
@@ -705,14 +722,12 @@ function cancelEditCustomEntry() {
     if (errEl) errEl.textContent = '';
 }
 function deleteCustomEntry(id) {
-    saveCustomEntriesRaw(getCustomEntriesRaw().filter(c => c.id !== id));
-    const idx = ENTRIES.findIndex(e => e.id === id);
-    if (idx >= 0) ENTRIES.splice(idx, 1);
-    render();
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('entries').doc(id).delete();
 }
 
 const AVATAR_KEY = 'akiAvatar';
-const CUSTOM_PAGES_KEY = 'akiCustomPages';
 
 function avatarKey() {
     return AVATAR_KEY + '_' + (getCurrentUser() || 'guest');
@@ -741,17 +756,12 @@ function removeAvatar() {
     if ((window.location.hash || '').includes('compte')) render();
 }
 function getCustomPagesRaw() {
-    try { return JSON.parse(localStorage.getItem(CUSTOM_PAGES_KEY) || '[]'); }
-    catch { return []; }
-}
-function saveCustomPagesRaw(list) {
-    localStorage.setItem(CUSTOM_PAGES_KEY, JSON.stringify(list));
+    return customPagesCache;
 }
 function refreshCustomNavLinks() {
     const wrap = document.getElementById('customNavLinksWrap');
     if (!wrap) return;
-    const pages = getCustomPagesRaw();
-    wrap.innerHTML = pages.map(p => `
+    wrap.innerHTML = customPagesCache.map(p => `
     <a class="nav-link" data-route="page-${p.id}" onclick="navigate('page-${p.id}')">
       <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
       ${esc(p.label)}
@@ -761,27 +771,27 @@ function addCustomNavPage() {
     const labelEl = document.getElementById('cnpLabel');
     const bodyEl = document.getElementById('cnpBody');
     const errEl = document.getElementById('cnpError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
     const label = (labelEl?.value || '').trim();
     const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
     if (!label) {
         if (errEl) errEl.textContent = "Donne un nom à l'onglet.";
         return;
     }
-    const id = slugify(label) + '-' + Date.now().toString(36);
-    const list = getCustomPagesRaw();
-    list.push({ id, label, body });
-    saveCustomPagesRaw(list);
-    refreshCustomNavLinks();
-    render();
+    if (errEl) errEl.textContent = '';
+    db.collection('navPages').add({ label, body })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 function deleteCustomNavPage(id) {
-    saveCustomPagesRaw(getCustomPagesRaw().filter(p => p.id !== id));
-    refreshCustomNavLinks();
-    if ((window.location.hash || '').replace('#', '') === 'page-' + id) navigate('home');
-    render();
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('navPages').doc(id).delete().then(() => {
+        if ((window.location.hash || '').replace('#', '') === 'page-' + id) navigate('home');
+    });
 }
 function renderCustomPage(id) {
-    const page = getCustomPagesRaw().find(p => p.id === id);
+    const page = customPagesCache.find(p => p.id === id);
     if (!page) return renderNotFound();
     return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / ${esc(page.label)}</div>
@@ -4081,7 +4091,7 @@ function fmtMusicTime(s) {
 }
 window.addEventListener('hashchange', render);
 window.addEventListener('DOMContentLoaded', () => {
-    loadCustomEntries();
+    initFirestoreSync();
     updateAuthUI();
     refreshCustomNavLinks();
     render();
