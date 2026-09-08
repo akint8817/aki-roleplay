@@ -583,6 +583,376 @@ function findEntry(id: string): Entry | undefined {
   return ENTRIES.find(e => e.id === id);
 }
 
+/* ---------------- CONNEXION & ÉCRITURE (pages écrites depuis le site) ----------------
+   Authentification purement côté client (pas de serveur) : un simple filtre pour
+   réserver l'accès à l'espace d'écriture. Les pages créées sont stockées dans le
+   localStorage du navigateur — elles ne sont visibles que sur cet appareil, pas
+   partagées avec les autres visiteurs du site.
+*/
+interface CustomEntry {
+  id: string;
+  cat: CategoryId;
+  name: string;
+  tagline: string;
+  quote?: string;
+  body: string[];
+}
+
+const AUTH_KEY = 'akiAuthUser';
+const AUTH_USER = 'aki';
+const AUTH_CODE = 'yw3547';
+const CUSTOM_ENTRIES_KEY = 'akiCustomEntries';
+
+function isLoggedIn(): boolean {
+  return localStorage.getItem(AUTH_KEY) === AUTH_USER;
+}
+
+function getCustomEntriesRaw(): CustomEntry[] {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_ENTRIES_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveCustomEntriesRaw(list: CustomEntry[]): void {
+  localStorage.setItem(CUSTOM_ENTRIES_KEY, JSON.stringify(list));
+}
+
+function customEntryToEntry(c: CustomEntry): Entry {
+  return {
+    id: c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
+    quote: c.quote, summary: c.tagline, info: { 'Auteur': 'Aki' }, body: c.body,
+  };
+}
+
+function loadCustomEntries(): void {
+  getCustomEntriesRaw().forEach(c => {
+    if(!ENTRIES.find(e => e.id === c.id)) ENTRIES.push(customEntryToEntry(c));
+  });
+}
+
+function updateAuthUI(): void {
+  const loggedIn = isLoggedIn();
+  const btn = document.getElementById('authBtn');
+  const out = document.getElementById('authFormLoggedOut');
+  const inn = document.getElementById('authFormLoggedIn');
+  const ecritureLink = document.getElementById('ecritureNavLink');
+  const compteLink = document.getElementById('compteNavLink');
+  const avatar = getAvatar();
+  if(btn){
+    btn.innerHTML = loggedIn
+      ? (avatar ? `<img class="auth-btn-avatar" src="${avatar}" alt="">Aki` : 'Aki')
+      : 'Connexion';
+  }
+  if(out) out.style.display = loggedIn ? 'none' : '';
+  if(inn) inn.style.display = loggedIn ? '' : 'none';
+  if(ecritureLink) ecritureLink.style.display = loggedIn ? '' : 'none';
+  if(compteLink) compteLink.style.display = loggedIn ? '' : 'none';
+}
+
+function toggleAuthPanel(): void {
+  document.getElementById('authPanel')?.classList.toggle('open');
+}
+
+function submitLogin(): void {
+  const userEl = document.getElementById('authUser') as HTMLInputElement | null;
+  const codeEl = document.getElementById('authCode') as HTMLInputElement | null;
+  const errEl = document.getElementById('authError');
+  const u = (userEl?.value || '').trim().toLowerCase();
+  const c = (codeEl?.value || '').trim();
+  if(u === AUTH_USER && c === AUTH_CODE){
+    localStorage.setItem(AUTH_KEY, AUTH_USER);
+    if(errEl) errEl.textContent = '';
+    if(userEl) userEl.value = '';
+    if(codeEl) codeEl.value = '';
+    document.getElementById('authPanel')?.classList.remove('open');
+    updateAuthUI();
+  } else if(errEl){
+    errEl.textContent = 'Identifiants incorrects.';
+  }
+}
+
+function logout(): void {
+  localStorage.removeItem(AUTH_KEY);
+  updateAuthUI();
+  document.getElementById('authPanel')?.classList.remove('open');
+  if((window.location.hash || '').includes('ecriture')) navigate('home');
+}
+
+document.addEventListener('click', (ev)=>{
+  const panel = document.getElementById('authPanel');
+  const dock = document.getElementById('authDock');
+  if(!panel || !panel.classList.contains('open')) return;
+  if(dock && !dock.contains(ev.target as Node)) panel.classList.remove('open');
+});
+
+function slugify(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]','g'),'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+}
+
+function renderEcriture(): string {
+  if(!isLoggedIn()){
+    return `<div class="empty-state">Connecte-toi pour accéder à l'espace d'écriture.</div>`;
+  }
+  const mine = getCustomEntriesRaw();
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Écriture</div>
+    <h1 style="font-size:26px; margin-bottom:6px;">Espace d'écriture</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Crée de nouvelles pages de lore. Elles s'ajoutent directement dans la catégorie choisie —
+      mais uniquement sur ce navigateur (pas de serveur, donc pas encore partagé avec les autres visiteurs).
+    </p>
+    <div class="write-form">
+      <input type="hidden" id="wfEditId" value="">
+      <div class="write-row">
+        <label>Catégorie</label>
+        <select id="wfCat">${Object.entries(CATS).map(([k,c])=>`<option value="${k}">${esc(c.label)}</option>`).join('')}</select>
+      </div>
+      <div class="write-row">
+        <label>Nom</label>
+        <input id="wfName" type="text" placeholder="Nom du personnage / objet / lieu…">
+      </div>
+      <div class="write-row">
+        <label>Titre / tagline</label>
+        <input id="wfTagline" type="text" placeholder="Courte description affichée sous le nom">
+      </div>
+      <div class="write-row">
+        <label>Citation (optionnel)</label>
+        <input id="wfQuote" type="text" placeholder="« ... »">
+      </div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par ligne)</label>
+        <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
+      </div>
+      <div class="write-error" id="wfError"></div>
+      <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
+      <span class="btn btn-ghost" id="wfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditCustomEntry()">Annuler</span>
+    </div>
+
+    <h2 style="font-size:16px; margin:30px 0 14px; color:var(--verdigris);">Mes pages écrites</h2>
+    <div class="grid">
+      ${mine.length ? mine.map(m=>`
+        <div class="card" style="cursor:default;">
+          <div class="card-top">${iconSvg(m.cat)}<span class="tag common">${esc(CATS[m.cat].label)}</span></div>
+          <h3 onclick="navigate('entry-${m.id}')" style="cursor:pointer;">${esc(m.name)}</h3>
+          <p>${esc(m.tagline)}</p>
+          <div style="display:flex; gap:8px; margin-top:10px;">
+            <span class="btn btn-ghost" onclick="editCustomEntry('${m.id}')">Modifier</span>
+            <span class="btn btn-ghost" onclick="deleteCustomEntry('${m.id}')">Supprimer</span>
+          </div>
+        </div>`).join('') : `<div class="empty-state">Aucune page écrite pour l'instant.</div>`}
+    </div>
+  `;
+}
+
+function submitCustomEntry(): void {
+  const catEl = document.getElementById('wfCat') as HTMLSelectElement | null;
+  const nameEl = document.getElementById('wfName') as HTMLInputElement | null;
+  const taglineEl = document.getElementById('wfTagline') as HTMLInputElement | null;
+  const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('wfBody') as HTMLTextAreaElement | null;
+  const editIdEl = document.getElementById('wfEditId') as HTMLInputElement | null;
+  const errEl = document.getElementById('wfError');
+  const cat = (catEl?.value || 'personnages') as CategoryId;
+  const name = (nameEl?.value || '').trim();
+  const tagline = (taglineEl?.value || '').trim();
+  const quote = (quoteEl?.value || '').trim();
+  const body = (bodyEl?.value || '').split('\n').map(s=>s.trim()).filter(Boolean);
+  const editId = editIdEl?.value || '';
+  if(!name || !tagline || body.length === 0){
+    if(errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
+    return;
+  }
+  const list = getCustomEntriesRaw();
+  if(editId){
+    const idx = list.findIndex(c=>c.id===editId);
+    if(idx>=0){
+      const updated: CustomEntry = { id: editId, cat, name, tagline, quote: quote || undefined, body };
+      list[idx] = updated;
+      saveCustomEntriesRaw(list);
+      const eIdx = ENTRIES.findIndex(e=>e.id===editId);
+      if(eIdx>=0) ENTRIES[eIdx] = customEntryToEntry(updated);
+    }
+  } else {
+    const id = 'custom-' + slugify(name) + '-' + Date.now().toString(36);
+    const entry: CustomEntry = { id, cat, name, tagline, quote: quote || undefined, body };
+    list.push(entry);
+    saveCustomEntriesRaw(list);
+    ENTRIES.push(customEntryToEntry(entry));
+  }
+  render();
+}
+
+function editCustomEntry(id: string): void {
+  const entry = getCustomEntriesRaw().find(c=>c.id===id);
+  if(!entry) return;
+  (document.getElementById('wfCat') as HTMLSelectElement).value = entry.cat;
+  (document.getElementById('wfName') as HTMLInputElement).value = entry.name;
+  (document.getElementById('wfTagline') as HTMLInputElement).value = entry.tagline;
+  (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
+  (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.join('\n');
+  (document.getElementById('wfEditId') as HTMLInputElement).value = id;
+  const btn = document.getElementById('wfSubmitBtn');
+  if(btn) btn.textContent = 'Enregistrer les modifications';
+  const cancelBtn = document.getElementById('wfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = '';
+  document.querySelector('.write-form')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function cancelEditCustomEntry(): void {
+  (document.getElementById('wfEditId') as HTMLInputElement).value = '';
+  (document.getElementById('wfCat') as HTMLSelectElement).value = 'personnages';
+  (document.getElementById('wfName') as HTMLInputElement).value = '';
+  (document.getElementById('wfTagline') as HTMLInputElement).value = '';
+  (document.getElementById('wfQuote') as HTMLInputElement).value = '';
+  (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
+  const btn = document.getElementById('wfSubmitBtn');
+  if(btn) btn.textContent = 'Publier';
+  const cancelBtn = document.getElementById('wfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = 'none';
+  const errEl = document.getElementById('wfError');
+  if(errEl) errEl.textContent = '';
+}
+
+function deleteCustomEntry(id: string): void {
+  saveCustomEntriesRaw(getCustomEntriesRaw().filter(c=>c.id!==id));
+  const idx = ENTRIES.findIndex(e=>e.id===id);
+  if(idx>=0) ENTRIES.splice(idx,1);
+  render();
+}
+
+/* ---------------- COMPTE — photo de profil et onglets de navigation personnalisés ---------------- */
+interface CustomNavPage { id: string; label: string; body: string[]; }
+const AVATAR_KEY = 'akiAvatar';
+const CUSTOM_PAGES_KEY = 'akiCustomPages';
+
+function getAvatar(): string | null {
+  return localStorage.getItem(AVATAR_KEY);
+}
+
+function setAvatarFromFile(file: File): void {
+  if(file.size > 2*1024*1024){ alert('Image trop lourde (2 Mo maximum).'); return; }
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      localStorage.setItem(AVATAR_KEY, reader.result as string);
+    } catch {
+      alert("Impossible d'enregistrer cette image (trop volumineuse pour le stockage local).");
+      return;
+    }
+    updateAuthUI();
+    if((window.location.hash || '').includes('compte')) render();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeAvatar(): void {
+  localStorage.removeItem(AVATAR_KEY);
+  updateAuthUI();
+  if((window.location.hash || '').includes('compte')) render();
+}
+
+function getCustomPagesRaw(): CustomNavPage[] {
+  try { return JSON.parse(localStorage.getItem(CUSTOM_PAGES_KEY) || '[]'); }
+  catch { return []; }
+}
+
+function saveCustomPagesRaw(list: CustomNavPage[]): void {
+  localStorage.setItem(CUSTOM_PAGES_KEY, JSON.stringify(list));
+}
+
+function refreshCustomNavLinks(): void {
+  const wrap = document.getElementById('customNavLinksWrap');
+  if(!wrap) return;
+  const pages = getCustomPagesRaw();
+  wrap.innerHTML = pages.map(p=>`
+    <a class="nav-link" data-route="page-${p.id}" onclick="navigate('page-${p.id}')">
+      <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+      ${esc(p.label)}
+    </a>`).join('');
+}
+
+function addCustomNavPage(): void {
+  const labelEl = document.getElementById('cnpLabel') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('cnpBody') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('cnpError');
+  const label = (labelEl?.value || '').trim();
+  const body = (bodyEl?.value || '').split('\n').map(s=>s.trim()).filter(Boolean);
+  if(!label){
+    if(errEl) errEl.textContent = "Donne un nom à l'onglet.";
+    return;
+  }
+  const id = slugify(label) + '-' + Date.now().toString(36);
+  const list = getCustomPagesRaw();
+  list.push({ id, label, body });
+  saveCustomPagesRaw(list);
+  refreshCustomNavLinks();
+  render();
+}
+
+function deleteCustomNavPage(id: string): void {
+  saveCustomPagesRaw(getCustomPagesRaw().filter(p=>p.id!==id));
+  refreshCustomNavLinks();
+  if((window.location.hash || '').replace('#','') === 'page-'+id) navigate('home');
+  render();
+}
+
+function renderCustomPage(id: string): string {
+  const page = getCustomPagesRaw().find(p=>p.id===id);
+  if(!page) return renderNotFound();
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / ${esc(page.label)}</div>
+    <h1 style="font-size:26px; margin-bottom:16px;">${esc(page.label)}</h1>
+    <div class="custom-page-body">
+      ${page.body.length ? page.body.map(p=>`<p>${esc(p)}</p>`).join('') : `<p style="color:var(--text-dim)">Page vide.</p>`}
+    </div>
+  `;
+}
+
+function renderCompte(): string {
+  if(!isLoggedIn()){
+    return `<div class="empty-state">Connecte-toi pour accéder à ton compte.</div>`;
+  }
+  const avatar = getAvatar();
+  const pages = getCustomPagesRaw();
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Mon compte</div>
+    <h1 style="font-size:26px; margin-bottom:20px;">Mon compte</h1>
+
+    <div class="account-section">
+      <h2 class="account-section-title">Photo de profil</h2>
+      <div class="avatar-row">
+        <div class="avatar-preview">${avatar ? `<img src="${avatar}" alt="Avatar">` : `<span>A</span>`}</div>
+        <div class="avatar-actions">
+          <label class="btn btn-ghost avatar-upload-btn">
+            Changer la photo
+            <input type="file" accept="image/*" style="display:none" onchange="if(this.files && this.files[0]) setAvatarFromFile(this.files[0])">
+          </label>
+          ${avatar ? `<span class="btn btn-ghost" onclick="removeAvatar()">Retirer</span>` : ''}
+        </div>
+      </div>
+    </div>
+
+    <div class="account-section">
+      <h2 class="account-section-title">Onglets de navigation personnalisés</h2>
+      <p style="color:var(--text-dim); font-size:12.5px; margin-bottom:14px;">
+        Crée un nouvel onglet dans la barre de navigation, visible par tous les visiteurs du site (règles du RP, annonces…).
+      </p>
+      <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+        <div class="write-row"><label>Nom de l'onglet</label><input id="cnpLabel" type="text" placeholder="Ex : Règles du RP"></div>
+        <div class="write-row"><label>Contenu (un paragraphe par ligne)</label><textarea id="cnpBody" rows="6"></textarea></div>
+        <div class="write-error" id="cnpError"></div>
+        <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
+      </div>
+      <div class="account-list">
+        ${pages.length ? pages.map(p=>`
+          <div class="account-list-row">
+            <span onclick="navigate('page-${p.id}')" style="cursor:pointer;">${esc(p.label)}</span>
+            <span class="btn btn-ghost" onclick="deleteCustomNavPage('${p.id}')">Supprimer</span>
+          </div>`).join('') : `<div class="empty-state">Aucun onglet personnalisé pour l'instant.</div>`}
+      </div>
+    </div>
+  `;
+}
+
 /* ---------------- FACTIONS (page Personnages façon Wuthering Waves) ---------------- */
 const FACTIONS: Faction[] = [
   { id:'halcyon', name:'Halcyon', color:'178,58,58',
@@ -3565,6 +3935,14 @@ function render(): void {
   } else if(route === 'actualites'){
     content.innerHTML = renderNewsPage();
     initNewsIntro();
+  } else if(route === 'ecriture'){
+    if(!isLoggedIn()){ navigate('home'); return; }
+    content.innerHTML = renderEcriture();
+  } else if(route === 'compte'){
+    if(!isLoggedIn()){ navigate('home'); return; }
+    content.innerHTML = renderCompte();
+  } else if(route.startsWith('page-')){
+    content.innerHTML = renderCustomPage(route.replace('page-',''));
   } else if(route.startsWith('cat-')){
     content.innerHTML = renderCategory(route.replace('cat-',''));
   } else if(route.startsWith('entry-')){
@@ -3837,7 +4215,12 @@ function fmtMusicTime(s: number): string {
 }
 
 window.addEventListener('hashchange', render);
-window.addEventListener('DOMContentLoaded', render);
+window.addEventListener('DOMContentLoaded', ()=>{
+  loadCustomEntries();
+  updateAuthUI();
+  refreshCustomNavLinks();
+  render();
+});
 window.addEventListener('resize', ()=>{ if(rosterState) layoutRosterStage(); });
 window.addEventListener('mousemove', onRosterDragMove);
 window.addEventListener('mouseup', onRosterDragEnd);
