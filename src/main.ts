@@ -596,19 +596,34 @@ interface CustomEntry {
   tagline: string;
   quote?: string;
   body: string[];
+  author: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
-const AUTH_USER = 'aki';
-const AUTH_CODE = 'yw3547';
+const AUTH_USERS: Record<string,string> = {
+  'aki': 'yw3547',
+  'wingless': 'aurora',
+};
 const CUSTOM_ENTRIES_KEY = 'akiCustomEntries';
 
+function capitalize(s: string): string {
+  return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+}
+
+function getCurrentUser(): string | null {
+  const u = localStorage.getItem(AUTH_KEY);
+  return u && Object.prototype.hasOwnProperty.call(AUTH_USERS, u) ? u : null;
+}
+
 function isLoggedIn(): boolean {
-  return localStorage.getItem(AUTH_KEY) === AUTH_USER;
+  return getCurrentUser() !== null;
 }
 
 function getCustomEntriesRaw(): CustomEntry[] {
-  try { return JSON.parse(localStorage.getItem(CUSTOM_ENTRIES_KEY) || '[]'); }
+  try {
+    const list = JSON.parse(localStorage.getItem(CUSTOM_ENTRIES_KEY) || '[]') as CustomEntry[];
+    return list.map(c => ({ ...c, author: c.author || 'aki' }));
+  }
   catch { return []; }
 }
 
@@ -619,7 +634,7 @@ function saveCustomEntriesRaw(list: CustomEntry[]): void {
 function customEntryToEntry(c: CustomEntry): Entry {
   return {
     id: c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
-    quote: c.quote, summary: c.tagline, info: { 'Auteur': 'Aki' }, body: c.body,
+    quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
   };
 }
 
@@ -631,17 +646,21 @@ function loadCustomEntries(): void {
 
 function updateAuthUI(): void {
   const loggedIn = isLoggedIn();
+  const user = getCurrentUser();
+  const label = user ? capitalize(user) : '';
   const btn = document.getElementById('authBtn');
   const out = document.getElementById('authFormLoggedOut');
   const inn = document.getElementById('authFormLoggedIn');
+  const welcomeName = document.getElementById('authWelcomeName');
   const ecritureLink = document.getElementById('ecritureNavLink');
   const compteLink = document.getElementById('compteNavLink');
   const avatar = getAvatar();
   if(btn){
     btn.innerHTML = loggedIn
-      ? (avatar ? `<img class="auth-btn-avatar" src="${avatar}" alt="">Aki` : 'Aki')
+      ? (avatar ? `<img class="auth-btn-avatar" src="${avatar}" alt="">${esc(label)}` : esc(label))
       : 'Connexion';
   }
+  if(welcomeName) welcomeName.textContent = label;
   if(out) out.style.display = loggedIn ? 'none' : '';
   if(inn) inn.style.display = loggedIn ? '' : 'none';
   if(ecritureLink) ecritureLink.style.display = loggedIn ? '' : 'none';
@@ -658,8 +677,8 @@ function submitLogin(): void {
   const errEl = document.getElementById('authError');
   const u = (userEl?.value || '').trim().toLowerCase();
   const c = (codeEl?.value || '').trim();
-  if(u === AUTH_USER && c === AUTH_CODE){
-    localStorage.setItem(AUTH_KEY, AUTH_USER);
+  if(Object.prototype.hasOwnProperty.call(AUTH_USERS, u) && AUTH_USERS[u] === c){
+    localStorage.setItem(AUTH_KEY, u);
     if(errEl) errEl.textContent = '';
     if(userEl) userEl.value = '';
     if(codeEl) codeEl.value = '';
@@ -692,7 +711,7 @@ function renderEcriture(): string {
   if(!isLoggedIn()){
     return `<div class="empty-state">Connecte-toi pour accéder à l'espace d'écriture.</div>`;
   }
-  const mine = getCustomEntriesRaw();
+  const mine = getCustomEntriesRaw().filter(c => c.author === getCurrentUser());
   return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Écriture</div>
     <h1 style="font-size:26px; margin-bottom:6px;">Espace d'écriture</h1>
@@ -765,7 +784,7 @@ function submitCustomEntry(): void {
   if(editId){
     const idx = list.findIndex(c=>c.id===editId);
     if(idx>=0){
-      const updated: CustomEntry = { id: editId, cat, name, tagline, quote: quote || undefined, body };
+      const updated: CustomEntry = { id: editId, cat, name, tagline, quote: quote || undefined, body, author: list[idx].author };
       list[idx] = updated;
       saveCustomEntriesRaw(list);
       const eIdx = ENTRIES.findIndex(e=>e.id===editId);
@@ -773,7 +792,7 @@ function submitCustomEntry(): void {
     }
   } else {
     const id = 'custom-' + slugify(name) + '-' + Date.now().toString(36);
-    const entry: CustomEntry = { id, cat, name, tagline, quote: quote || undefined, body };
+    const entry: CustomEntry = { id, cat, name, tagline, quote: quote || undefined, body, author: getCurrentUser() || 'aki' };
     list.push(entry);
     saveCustomEntriesRaw(list);
     ENTRIES.push(customEntryToEntry(entry));
@@ -824,8 +843,12 @@ interface CustomNavPage { id: string; label: string; body: string[]; }
 const AVATAR_KEY = 'akiAvatar';
 const CUSTOM_PAGES_KEY = 'akiCustomPages';
 
+function avatarKey(): string {
+  return AVATAR_KEY + '_' + (getCurrentUser() || 'guest');
+}
+
 function getAvatar(): string | null {
-  return localStorage.getItem(AVATAR_KEY);
+  return localStorage.getItem(avatarKey());
 }
 
 function setAvatarFromFile(file: File): void {
@@ -833,7 +856,7 @@ function setAvatarFromFile(file: File): void {
   const reader = new FileReader();
   reader.onload = () => {
     try {
-      localStorage.setItem(AVATAR_KEY, reader.result as string);
+      localStorage.setItem(avatarKey(), reader.result as string);
     } catch {
       alert("Impossible d'enregistrer cette image (trop volumineuse pour le stockage local).");
       return;
@@ -845,7 +868,7 @@ function setAvatarFromFile(file: File): void {
 }
 
 function removeAvatar(): void {
-  localStorage.removeItem(AVATAR_KEY);
+  localStorage.removeItem(avatarKey());
   updateAuthUI();
   if((window.location.hash || '').includes('compte')) render();
 }
