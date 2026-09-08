@@ -129,26 +129,6 @@ const ENTRIES = [
         info: { "Type": "Quête secondaire", "Niveau conseillé": "14", "Récompense": "200 PO + relique", "Région": "Marais Bas" },
         body: ["Une quête d'exploration qui récompense la curiosité : chaque cloche déclenche un court fragment narratif.",
             "Aucun combat n'est requis, mais deux cloches sont gardées par des pièges."] },
-    { id: 'hauteterres', cat: 'lieux', name: 'Hauteterres', tagline: 'Région montagneuse', rarity: 'rare',
-        summary: "Vastes plateaux balayés par le vent, autrefois le siège du pouvoir royal.",
-        info: { "Type": "Région", "Niveau": "18-30", "Climat": "Froid", "Points d'intérêt": "4" },
-        body: ["Les Hauteterres dominent la carte depuis le nord et abritent les ruines de l'ancienne citadelle.",
-            "Le climat rude y rend les déplacements nocturnes dangereux sans équipement adapté au froid."] },
-    { id: 'marais-bas', cat: 'lieux', name: 'Marais Bas', tagline: 'Zone humide', rarity: 'common',
-        summary: "Un village englouti où résonnent encore les cloches d'antan.",
-        info: { "Type": "Région", "Niveau": "10-16", "Climat": "Humide", "Points d'intérêt": "3" },
-        body: ["Le Marais Bas fut englouti il y a deux générations lors de la rupture du grand barrage.",
-            "On y trouve encore des habitants réfugiés sur les hauteurs, prêts à raconter leur histoire."] },
-    { id: 'foret-des-cendres', cat: 'lieux', name: 'Forêt des Cendres', tagline: 'Forêt calcinée', rarity: 'common',
-        summary: "Une forêt figée depuis l'incendie rituel, où les arbres noircis abritent une faune étrange.",
-        info: { "Type": "Région", "Niveau": "16-24", "Climat": "Sec", "Points d'intérêt": "2" },
-        body: ["La Forêt des Cendres brûle depuis des générations sans jamais se consumer entièrement, un phénomène que les érudits attribuent à un ancien rituel.",
-            "Certaines créatures s'y sont adaptées et ont développé une résistance naturelle au feu."] },
-    { id: 'cote-ecarlate', cat: 'lieux', name: 'Côte Écarlate', tagline: 'Littoral rocheux', rarity: 'common',
-        summary: "Des falaises teintées de rouge par un minerai rare, battues par des marées violentes.",
-        info: { "Type": "Région", "Niveau": "8-14", "Climat": "Tempéré", "Points d'intérêt": "3" },
-        body: ["La Côte Écarlate tire son nom du minerai qui affleure dans ses falaises, recherché par les forgerons pour ses propriétés uniques.",
-            "Les marées y sont imprévisibles et peuvent isoler certaines plages pendant plusieurs heures."] },
 ];
 /* ---------------- ARCHIVES HALCYON — ARTEFACTS OXIRIENS (dossiers secrets des armes) ---------------- */
 const WEAPONS = [
@@ -2055,15 +2035,13 @@ function playChronoBoot() {
 }
 /* ---------------- MISSION EN COURS — tableau de bord tactique ---------------- */
 const MISSION_POINT_META = {
-    'hauteterres': { status: 'ANOMALIE', category: 'actif', desc: "Pic d'activité énergétique détecté près des ruines de la citadelle." },
-    'marais-bas': { status: 'SIGNAL FAIBLE', category: 'actif', desc: "Traces d'Essence résiduelle relevées dans les zones inondées." },
-    'foret-des-cendres': { status: 'SURVEILLANCE', category: 'actif', desc: "Une clairière continue de brûler sans s'éteindre. Cause inconnue." },
-    'cote-ecarlate': { status: 'INTERVENTION', category: 'actif', desc: "Unité de la Direction Aurore déployée pour cartographier le littoral." },
+    'hauteterres': { label: 'Hauteterres', x: 640, y: 230, glow: '196,201,209', status: 'ANOMALIE', category: 'actif', desc: "Pic d'activité énergétique détecté près des ruines de la citadelle." },
+    'marais-bas': { label: 'Marais Bas', x: 930, y: 520, glow: '138,149,166', status: 'SIGNAL FAIBLE', category: 'actif', desc: "Traces d'Essence résiduelle relevées dans les zones inondées." },
+    'foret-des-cendres': { label: 'Forêt des Cendres', x: 520, y: 520, glow: '196,110,64', status: 'SURVEILLANCE', category: 'actif', desc: "Une clairière continue de brûler sans s'éteindre. Cause inconnue." },
+    'cote-ecarlate': { label: 'Côte Écarlate', x: 1020, y: 250, glow: '178,90,82', status: 'INTERVENTION', category: 'actif', desc: "Unité de la Direction Aurore déployée pour cartographier le littoral." },
 };
 function getMissionPoints() {
-    const pts = MAP_ZONES
-        .filter(z => MISSION_POINT_META[z.id])
-        .map(z => ({ id: z.id, label: z.label, x: z.x, y: z.y, ...MISSION_POINT_META[z.id] }));
+    const pts = Object.entries(MISSION_POINT_META).map(([id, m]) => ({ id, ...m }));
     pts.push({ id: 'secteur-inconnu', label: 'Secteur Inconnu', x: 800, y: 420, status: 'CLASSIFIÉ', category: 'classifie', desc: "Coordonnées verrouillées. Accès réservé aux hauts gradés Halcyon." });
     return pts;
 }
@@ -2119,7 +2097,7 @@ function renderMission() {
       <span class="mc-blip-label">${esc(p.label)}</span>
     </button>`;
     }).join('');
-    const terrainBlobs = MAP_ZONES.map(z => {
+    const terrainBlobs = Object.values(MISSION_POINT_META).map(z => {
         const left = mcPct(z.x, WORLD_W);
         const top = mcPct(z.y, WORLD_H);
         return `<div class="mc-terrain-blob" style="left:${left}%; top:${top}%; --tclr:${z.glow};"></div>`;
@@ -3132,44 +3110,18 @@ function playDossierBoot(renderFn) {
    vers la zone et ouvre le panneau latéral. MAP_ZONES pilote position/couleur.
 */
 const CONTINENT_NAME = 'Aeloria';
-const MAP_ZONES = [
-    { id: 'hauteterres', type: 'mountain', x: 640, y: 230, label: 'Hauteterres', glow: '196,201,209',
-        pois: [
-            { id: 'citadelle-ruines', x: 600, y: 190, label: 'Citadelle en Ruines',
-                desc: "Les vestiges de l'ancienne garde royale, hantés par les souvenirs d'un règne déchu.",
-                facts: { 'Type': 'Ruines fortifiées', 'Danger': 'Modéré' }, chars: ['valen-korr'] },
-            { id: 'sanctuaire-conclave', x: 685, y: 265, label: 'Sanctuaire du Conclave',
-                desc: "Bibliothèque souterraine où le Conclave Ivoire préserve la mémoire de l'âge d'avant la chute.",
-                facts: { 'Type': 'Archives sacrées', 'Accès': 'Restreint' }, chars: ['kaelen-thorr'] },
-        ] },
-    { id: 'marais-bas', type: 'swamp', x: 930, y: 520, label: 'Marais Bas', glow: '138,149,166',
-        pois: [
-            { id: 'echoppe-crepuscule', x: 895, y: 490, label: 'Échoppe du Crépuscule',
-                desc: "Une boutique itinérante qui n'apparaît qu'entre le coucher et le lever du soleil.",
-                facts: { 'Type': 'Commerce', 'Ouverture': 'Nocturne' }, chars: ['sylwen'] },
-            { id: 'passage-englouti', x: 965, y: 555, label: 'Passage Englouti',
-                desc: "Un ancien chemin marchand aujourd'hui recouvert par les eaux stagnantes du marais.",
-                facts: { 'Type': 'Voie ancienne', 'Danger': 'Élevé' }, chars: ['fenn-adair'] },
-        ] },
-    { id: 'foret-des-cendres', type: 'forest', x: 520, y: 520, label: 'Forêt des Cendres', glow: '196,110,64',
-        pois: [
-            { id: 'coeur-calcine', x: 490, y: 490, label: 'Cœur Calciné',
-                desc: "Une clairière où le feu ne s'est jamais tout à fait éteint, pour des raisons que nul n'explique.",
-                facts: { 'Type': 'Anomalie', 'Danger': 'Inconnu' } },
-            { id: 'sentier-cendres', x: 555, y: 555, label: 'Sentier des Cendres',
-                desc: "Le chemin le plus court à travers la forêt — et le plus surveillé.",
-                facts: { 'Type': 'Sentier', 'Danger': 'Faible' } },
-        ] },
-    { id: 'cote-ecarlate', type: 'coast', x: 1020, y: 250, label: 'Côte Écarlate', glow: '178,90,82',
-        pois: [
-            { id: 'antenne-aurore', x: 985, y: 220, label: 'Antenne Aurore',
-                desc: "Un avant-poste technologique d'où la Direction Aurore cartographie les ruines côtières.",
-                facts: { 'Type': 'Avant-poste', 'Faction': 'Direction Aurore' }, chars: ['iris-vex'] },
-            { id: 'falaises-rouges', x: 1055, y: 285, label: 'Falaises Rouges',
-                desc: "Des falaises teintées par l'oxyde des anciennes machines échouées à leur pied.",
-                facts: { 'Type': 'Formation naturelle', 'Danger': 'Modéré' }, chars: ['kess-ryn'] },
-        ] },
+// Les lieux « en dur » (avec zone cliquable + fiche) ont été retirés : les
+// lieux sont désormais uniquement ceux écrits par les utilisateurs connectés
+// via l'espace Écriture (page "Lieux" du codex, sans zone sur la carte).
+// Ces coordonnées ne servent plus qu'à peindre le relief du continent
+// (montagnes, marais, forêt, falaises) sur la carte, à titre décoratif.
+const TERRAIN_FEATURES = [
+    { id: 'hauteterres', x: 640, y: 230, glow: '196,201,209' },
+    { id: 'marais-bas', x: 930, y: 520, glow: '138,149,166' },
+    { id: 'foret-des-cendres', x: 520, y: 520, glow: '196,110,64' },
+    { id: 'cote-ecarlate', x: 1020, y: 250, glow: '178,90,82' },
 ];
+const MAP_ZONES = [];
 const MAP_ZONE_ICONS = {
     mountain: '<path d="M3 18l5-9 4 6 3-4 6 7z"/>',
     swamp: '<path d="M3 15c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/><path d="M3 19c2-2 4-2 6 0s4 2 6 0 4-2 6 0"/>',
@@ -3244,7 +3196,7 @@ function paintWorldMap() {
     g.fillRect(0, 0, WORLD_W, WORLD_H);
     // teinte de neige/roche au sol sous les Hauteterres (les pics eux-mêmes sont peints sur le calque de relief séparé)
     (function () {
-        const z = MAP_ZONES.find(m => m.id === 'hauteterres');
+        const z = TERRAIN_FEATURES.find(m => m.id === 'hauteterres');
         const snowGround = g.createRadialGradient(z.x, z.y - 10, 20, z.x, z.y - 10, 240);
         snowGround.addColorStop(0, 'rgba(212,217,224,0.6)');
         snowGround.addColorStop(1, 'rgba(212,217,224,0)');
@@ -3286,7 +3238,7 @@ function paintWorldMap() {
     }
     // --- Marais Bas : zone humide ---
     (function () {
-        const z = MAP_ZONES.find(m => m.id === 'marais-bas');
+        const z = TERRAIN_FEATURES.find(m => m.id === 'marais-bas');
         const swamp = g.createRadialGradient(z.x, z.y, 10, z.x, z.y, 150);
         swamp.addColorStop(0, 'rgba(60,90,80,0.5)');
         swamp.addColorStop(1, 'rgba(60,90,80,0)');
@@ -3304,7 +3256,7 @@ function paintWorldMap() {
     })();
     // --- Forêt des Cendres : zone corrompue, cendres noircies et lézardes d'énergie violette ---
     (function () {
-        const z = MAP_ZONES.find(m => m.id === 'foret-des-cendres');
+        const z = TERRAIN_FEATURES.find(m => m.id === 'foret-des-cendres');
         const corrupt = g.createRadialGradient(z.x, z.y, 10, z.x, z.y, 155);
         corrupt.addColorStop(0, 'rgba(28,18,26,0.75)');
         corrupt.addColorStop(1, 'rgba(28,18,26,0)');
@@ -3338,7 +3290,7 @@ function paintWorldMap() {
     })();
     // --- Côte Écarlate : falaises chaudes et tons ambrés ---
     (function () {
-        const z = MAP_ZONES.find(m => m.id === 'cote-ecarlate');
+        const z = TERRAIN_FEATURES.find(m => m.id === 'cote-ecarlate');
         g.fillStyle = 'rgba(185,122,68,0.42)';
         g.beginPath();
         g.ellipse(z.x, z.y, 130, 90, 0, 0, Math.PI * 2);
@@ -3392,7 +3344,7 @@ function paintWorldMap() {
     g.setLineDash([6, 7]);
     g.beginPath();
     order.forEach((id, i) => {
-        const z = MAP_ZONES.find(m => m.id === id);
+        const z = TERRAIN_FEATURES.find(m => m.id === id);
         if (i === 0)
             g.moveTo(z.x, z.y);
         else
@@ -3425,7 +3377,7 @@ function paintReliefLayer() {
     function rand() { seed = (seed * 1103515245 + 12345) & 0x7fffffff; return (seed % 1000) / 1000; }
     // --- Hauteterres : montagnes en relief (rangée arrière embrumée + rangée avant ombrée) ---
     (function () {
-        const z = MAP_ZONES.find(m => m.id === 'hauteterres');
+        const z = TERRAIN_FEATURES.find(m => m.id === 'hauteterres');
         // rangée arrière : plus petite, plus claire et embrumée → sensation de profondeur
         for (let i = 0; i < 6; i++) {
             const mx = z.x - 165 + i * 58 + rand() * 16, my = z.y - 48 + ((i % 2) ? 8 : -8);
