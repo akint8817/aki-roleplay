@@ -710,7 +710,10 @@ function initFirestoreSync() {
         snap.forEach((doc) => {
             const data = doc.data();
             const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite: data.specialite || undefined, capacite: data.capacite || undefined });
+            const specialite = Array.isArray(data.specialite)
+                ? data.specialite
+                : (data.specialite ? parseWriteBody(data.specialite) : undefined);
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined });
         });
         for (let i = ENTRIES.length - 1; i >= 0; i--) {
             if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -752,12 +755,12 @@ function getCustomEntriesRaw() {
 }
 function customEntryToEntry(c) {
     const info = {};
-    if (c.specialite) info['Spécificité'] = c.specialite;
     if (c.capacite) info['Capacité'] = c.capacite;
     info['Auteur'] = capitalize(c.author || 'aki');
     return {
         id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
         quote: c.quote, summary: c.tagline, info, body: c.body,
+        specialite: c.specialite,
         image: c.images && c.images[0] ? c.images[0].url : undefined,
         images: c.images,
     };
@@ -850,13 +853,14 @@ function renderEcriture() {
         <input id="wfQuote" type="text" placeholder="« ... »">
       </div>
       <div class="write-row">
-        <label>Spécificité (optionnel)</label>
-        <input id="wfSpecialite" type="text" placeholder="Ex : Rang A, Faction Halcyon…">
-      </div>
-      <div class="write-row">
         <label>Capacité (optionnel)</label>
         <input id="wfCapacite" type="text" placeholder="Ex : Manipulation de l'Essence…">
-        <div class="write-hint">La spécificité et la capacité s'affichent dans l'encadré d'infos, à côté de la fiche.</div>
+        <div class="write-hint">S'affiche comme info courte à côté de la fiche (et en haut, à côté de la faction, pour un personnage).</div>
+      </div>
+      <div class="write-row">
+        <label>Spécificité (optionnel)</label>
+        <textarea id="wfSpecialite" rows="5" placeholder="Détails, historique, particularités… peut faire plusieurs paragraphes."></textarea>
+        <div class="write-hint">S'affiche dans un encadré à côté de la fiche — peut être aussi long que tu veux (plusieurs paragraphes, gras, listes...).</div>
       </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
@@ -974,7 +978,7 @@ function submitCustomEntry() {
     const name = (nameEl?.value || '').trim();
     const tagline = (taglineEl?.value || '').trim();
     const quote = (quoteEl?.value || '').trim();
-    const specialite = (specialiteEl?.value || '').trim();
+    const specialite = parseWriteBody(specialiteEl?.value || '');
     const capacite = (capaciteEl?.value || '').trim();
     const body = parseWriteBody(bodyEl?.value || '');
     const images = wfImagesDraft.slice();
@@ -989,12 +993,12 @@ function submitCustomEntry() {
     if (editId) {
         const existing = customEntriesCache.find(c => c.id === editId);
         db.collection('entries').doc(editId).set({
-            cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images,
+            cat, name, tagline, quote: quote || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images,
             author: existing ? existing.author : (getCurrentUser() || 'aki'),
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
         db.collection('entries').add({
-            cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
+            cat, name, tagline, quote: quote || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
     cancelEditCustomEntry();
@@ -1011,7 +1015,7 @@ function editCustomEntry(id) {
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
     document.getElementById('wfQuote').value = entry.quote || '';
-    document.getElementById('wfSpecialite').value = entry.specialite || '';
+    document.getElementById('wfSpecialite').value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfCapacite').value = entry.capacite || '';
     document.getElementById('wfBody').value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfEditId').value = id;
@@ -1875,6 +1879,7 @@ function renderEntry(id) {
         </div>
         <div class="entry-side">
           ${entryGalleryHtml(e)}
+          ${entrySpecialiteHtml(e)}
           <div class="infobox">
             ${Object.entries(e.info).map(([k, v]) => `
               <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
@@ -1894,6 +1899,10 @@ function entryGalleryHtml(e) {
       <img src="${encodeURI(img.url)}" alt="${esc(e.name)}">
       ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ''}
     </figure>`).join('')}</div>`;
+}
+function entrySpecialiteHtml(e) {
+    if (!e.specialite || !e.specialite.length) return '';
+    return `<div class="entry-specialite"><div class="entry-side-heading">Spécificité</div>${renderRichBody(e.specialite)}</div>`;
 }
 function entryOwnerActionsHtml(e) {
     if (!e.id.startsWith('custom-')) return '';
@@ -1921,7 +1930,8 @@ function renderPersonnageEntry(e) {
     const fclr = f ? f.color : '196,201,209';
     const bgWord = e.name.split(/\s+/)[0].toUpperCase();
     const list = ENTRIES.filter(x => x.cat === 'personnages');
-    const firstInfo = Object.entries(e.info)[0];
+    const infoEntries = Object.entries(e.info);
+    const capaciteFact = infoEntries.find(([k]) => k === 'Capacité') || infoEntries[0];
     const railAvatars = list.map(p => {
         const active = p.id === e.id;
         return `<button type="button" class="op-rail-avatar${active ? ' active' : ''}" onclick="navigate('entry-${p.id}')" title="${esc(p.name)}">
@@ -1960,17 +1970,20 @@ function renderPersonnageEntry(e) {
         </div>
         <div class="op-facts-bar">
           <div class="op-fact"><span class="op-fact-k">Faction</span><span class="op-fact-v">${f ? esc(f.name) : '—'}</span></div>
-          ${firstInfo ? `<div class="op-fact"><span class="op-fact-k">${esc(firstInfo[0])}</span><span class="op-fact-v">${esc(firstInfo[1])}</span></div>` : ''}
+          ${capaciteFact ? `<div class="op-fact"><span class="op-fact-k">${esc(capaciteFact[0])}</span><span class="op-fact-v">${esc(capaciteFact[1])}</span></div>` : ''}
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
         ${entryOwnerActionsHtml(e)}
         <div class="article-body op-article-body">
           <div>${renderRichBody(e.body)}</div>
-          <div class="infobox">
-            ${Object.entries(e.info).map(([k, v]) => `
-              <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
-            `).join('')}
+          <div class="entry-side">
+            ${entrySpecialiteHtml(e)}
+            <div class="infobox">
+              ${Object.entries(e.info).map(([k, v]) => `
+                <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
+              `).join('')}
+            </div>
           </div>
         </div>
       </div>
