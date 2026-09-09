@@ -482,6 +482,32 @@ function renderRichBody(lines) {
 }
 function findEntry(id) { return ENTRIES.find(e => e.id === id); }
 
+function parseWriteBody(raw) {
+    const out = [];
+    let buffer = [];
+    const flushBuffer = () => {
+        if (buffer.length) {
+            out.push(buffer.join(' ').trim());
+            buffer = [];
+        }
+    };
+    for (const rawLine of raw.split('\n')) {
+        const line = rawLine.trim();
+        if (!line) {
+            flushBuffer();
+            continue;
+        }
+        if (line.startsWith('#') || line.startsWith('- ') || line.startsWith('* ') || line.startsWith('> ')) {
+            flushBuffer();
+            out.push(line);
+        } else {
+            buffer.push(line);
+        }
+    }
+    flushBuffer();
+    return out;
+}
+
 const AUTH_KEY = 'akiAuthUser';
 const AUTH_USERS = {
     'aki': 'yw3547',
@@ -685,9 +711,9 @@ function renderEcriture() {
         <input id="wfQuote" type="text" placeholder="« ... »">
       </div>
       <div class="write-row">
-        <label>Texte (un paragraphe par ligne)</label>
+        <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
-        <div class="write-hint">Astuce : commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
       </div>
       <div class="write-row">
         <label>Images (optionnel, 500 Ko max chacune)</label>
@@ -737,8 +763,9 @@ function renderEcriture() {
         </div>
       </div>
       <div class="write-row">
-        <label>Texte (un paragraphe par ligne)</label>
+        <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe.</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -794,7 +821,7 @@ function submitCustomEntry() {
     const name = (nameEl?.value || '').trim();
     const tagline = (taglineEl?.value || '').trim();
     const quote = (quoteEl?.value || '').trim();
-    const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const body = parseWriteBody(bodyEl?.value || '');
     const images = wfImagesDraft.slice();
     const editId = editIdEl?.value || '';
     if (!name || !tagline || body.length === 0) {
@@ -829,7 +856,7 @@ function editCustomEntry(id) {
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
     document.getElementById('wfQuote').value = entry.quote || '';
-    document.getElementById('wfBody').value = entry.body.join('\n');
+    document.getElementById('wfBody').value = entry.body.join('\n\n');
     document.getElementById('wfEditId').value = id;
     wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
     refreshWfImagesList();
@@ -872,7 +899,7 @@ function submitChronoEvent() {
     const date = (dateEl?.value || '').trim();
     const title = (titleEl?.value || '').trim();
     const tags = Array.from(document.querySelectorAll('.ceTagCheck:checked')).map(c => c.value);
-    const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const body = parseWriteBody(bodyEl?.value || '');
     const editId = editIdEl?.value || '';
     if (!date || !title || body.length === 0) {
         if (errEl) errEl.textContent = 'Remplis au moins la date, le titre et le texte.';
@@ -897,7 +924,7 @@ function editChronoEvent(id) {
     setTimeout(() => {
         document.getElementById('ceDate').value = ev.date;
         document.getElementById('ceTitle').value = ev.title;
-        document.getElementById('ceBody').value = ev.body.join('\n');
+        document.getElementById('ceBody').value = ev.body.join('\n\n');
         document.querySelectorAll('.ceTagCheck').forEach(c => { c.checked = ev.tags.includes(c.value); });
         document.getElementById('ceEditId').value = id;
         const btn = document.getElementById('ceSubmitBtn');
@@ -977,7 +1004,7 @@ function addCustomNavPage() {
     const db = getFirestoreDb();
     if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
     const label = (labelEl?.value || '').trim();
-    const body = (bodyEl?.value || '').split('\n').map(s => s.trim()).filter(Boolean);
+    const body = parseWriteBody(bodyEl?.value || '');
     if (!label) {
         if (errEl) errEl.textContent = "Donne un nom à l'onglet.";
         return;
@@ -1036,9 +1063,9 @@ function renderCompte() {
       <div class="write-form" style="max-width:520px; margin-bottom:20px;">
         <div class="write-row"><label>Nom de l'onglet</label><input id="cnpLabel" type="text" placeholder="Ex : Règles du RP"></div>
         <div class="write-row">
-          <label>Contenu (un paragraphe par ligne)</label>
+          <label>Contenu (un paragraphe par bloc de lignes)</label>
           <textarea id="cnpBody" rows="6"></textarea>
-          <div class="write-hint">Astuce : commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée.</div>
+          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
         </div>
         <div class="write-error" id="cnpError"></div>
         <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
