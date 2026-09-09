@@ -164,6 +164,8 @@ body{
 }
 .write-row input:focus, .write-row select:focus, .write-row textarea:focus{ border-color: var(--amber-dim); }
 .write-error{ color:#e0857c; font-size:12px; margin-bottom:10px; min-height:16px; }
+.write-hint{ font-size:11px; color:var(--text-dim); margin-top:6px; line-height:1.5; }
+.write-hint code{ background:var(--surface-2); border:1px solid var(--border); border-radius:2px; padding:0 4px; font-family:'IBM Plex Mono',monospace; }
 .write-images-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:10px; }
 .write-image-item{
   display:flex; align-items:center; gap:10px;
@@ -199,6 +201,8 @@ body{
 }
 .custom-page-body{ max-width:70ch; }
 .custom-page-body p{ font-size:14px; line-height:1.8; color: var(--text); margin-bottom:12px; }
+.custom-page-body h3{ font-size:15px; margin: 20px 0 8px; color: var(--verdigris); text-transform:uppercase; letter-spacing:0.06em; font-family:'EB Garamond'; font-style:italic; font-weight:600; }
+.custom-page-body h3:first-child{ margin-top:0; }
 
 .intro-overlay{
   position: fixed; inset:0;

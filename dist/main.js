@@ -449,6 +449,34 @@ function esc(s) {
 function escAttr(s) {
     return esc(s).replace(/"/g, '&quot;');
 }
+function renderRichBody(lines) {
+    const out = [];
+    let list = [];
+    const flushList = () => {
+        if (list.length) {
+            out.push(`<ul class="dossier-list-block">${list.map(li => `<li>${esc(li)}</li>`).join('')}</ul>`);
+            list = [];
+        }
+    };
+    for (const raw of lines) {
+        const line = raw.trim();
+        if (!line) continue;
+        if (line.startsWith('# ')) {
+            flushList();
+            out.push(`<h3>${esc(line.slice(2).trim())}</h3>`);
+        } else if (line.startsWith('- ') || line.startsWith('* ')) {
+            list.push(line.slice(2).trim());
+        } else if (line.startsWith('> ')) {
+            flushList();
+            out.push(`<div class="dossier-quote">« ${esc(line.slice(2).trim())} »</div>`);
+        } else {
+            flushList();
+            out.push(`<p>${esc(line)}</p>`);
+        }
+    }
+    flushList();
+    return out.join('');
+}
 function findEntry(id) { return ENTRIES.find(e => e.id === id); }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -656,6 +684,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par ligne)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
+        <div class="write-hint">Astuce : commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée.</div>
       </div>
       <div class="write-row">
         <label>Images (optionnel, 500 Ko max chacune)</label>
@@ -963,7 +992,7 @@ function renderCustomPage(id) {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / ${esc(page.label)}</div>
     <h1 style="font-size:26px; margin-bottom:16px;">${esc(page.label)}</h1>
     <div class="custom-page-body">
-      ${page.body.length ? page.body.map(p => `<p>${esc(p)}</p>`).join('') : `<p style="color:var(--text-dim)">Page vide.</p>`}
+      ${page.body.length ? renderRichBody(page.body) : `<p style="color:var(--text-dim)">Page vide.</p>`}
     </div>
   `;
 }
@@ -998,7 +1027,11 @@ function renderCompte() {
       </p>
       <div class="write-form" style="max-width:520px; margin-bottom:20px;">
         <div class="write-row"><label>Nom de l'onglet</label><input id="cnpLabel" type="text" placeholder="Ex : Règles du RP"></div>
-        <div class="write-row"><label>Contenu (un paragraphe par ligne)</label><textarea id="cnpBody" rows="6"></textarea></div>
+        <div class="write-row">
+          <label>Contenu (un paragraphe par ligne)</label>
+          <textarea id="cnpBody" rows="6"></textarea>
+          <div class="write-hint">Astuce : commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée.</div>
+        </div>
         <div class="write-error" id="cnpError"></div>
         <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
       </div>
@@ -1638,7 +1671,7 @@ function renderEntry(id) {
       </div>
       <div class="article-body">
         <div>
-          ${e.body.map((p) => `<p>${esc(p)}</p>`).join('')}
+          ${renderRichBody(e.body)}
         </div>
         <div class="entry-side">
           ${entryGalleryHtml(e)}
@@ -1722,7 +1755,7 @@ function renderPersonnageEntry(e) {
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
         <div class="article-body op-article-body">
-          <div>${e.body.map(p => `<p>${esc(p)}</p>`).join('')}</div>
+          <div>${renderRichBody(e.body)}</div>
           <div class="infobox">
             ${Object.entries(e.info).map(([k, v]) => `
               <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
@@ -1731,7 +1764,7 @@ function renderPersonnageEntry(e) {
         </div>
       </div>
     </div>
-    ${['alice-alfreya'].includes(e.id) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
+    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
 }
 function navigatePersonnageRail(dir, currentId) {
