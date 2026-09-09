@@ -605,6 +605,14 @@ function unlockArchive(blockId: string): void {
     setTimeout(() => {
       block.classList.remove('unlocking');
       block.classList.add('unlocked');
+      // Sur la frise chronologique, la carte a une hauteur figée calculée à
+      // l'ouverture ("Ouvrir le dossier") ; si l'archive révèle plus de
+      // texte qu'avant, il faut agrandir cette hauteur pour ne pas couper
+      // le texte qui vient d'apparaître.
+      const chronoBody = block.closest('.chrono-body') as HTMLElement | null;
+      if(chronoBody && chronoBody.style.maxHeight && chronoBody.style.maxHeight !== '0px'){
+        chronoBody.style.maxHeight = chronoBody.scrollHeight + 'px';
+      }
     }, 550);
   } else {
     if(errEl) errEl.textContent = 'Code incorrect.';

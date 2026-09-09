@@ -492,6 +492,10 @@ function unlockArchive(blockId) {
         setTimeout(() => {
             block.classList.remove('unlocking');
             block.classList.add('unlocked');
+            const chronoBody = block.closest('.chrono-body');
+            if (chronoBody && chronoBody.style.maxHeight && chronoBody.style.maxHeight !== '0px') {
+                chronoBody.style.maxHeight = chronoBody.scrollHeight + 'px';
+            }
         }, 550);
     } else {
         if (errEl) errEl.textContent = 'Code incorrect.';
