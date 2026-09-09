@@ -449,29 +449,32 @@ function esc(s) {
 function escAttr(s) {
     return esc(s).replace(/"/g, '&quot;');
 }
+function applyInlineFormatting(escapedText) {
+    return escapedText.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+}
 function renderRichBody(lines) {
     const out = [];
     let list = [];
     const flushList = () => {
         if (list.length) {
-            out.push(`<ul class="dossier-list-block">${list.map(li => `<li>${esc(li)}</li>`).join('')}</ul>`);
+            out.push(`<ul class="dossier-list-block">${list.map(li => `<li>${applyInlineFormatting(esc(li))}</li>`).join('')}</ul>`);
             list = [];
         }
     };
     for (const raw of lines) {
         const line = raw.trim();
         if (!line) continue;
-        if (line.startsWith('# ')) {
+        if (line.startsWith('#')) {
             flushList();
-            out.push(`<h3>${esc(line.slice(2).trim())}</h3>`);
+            out.push(`<h3>${esc(line.replace(/^#+\s*/, ''))}</h3>`);
         } else if (line.startsWith('- ') || line.startsWith('* ')) {
             list.push(line.slice(2).trim());
         } else if (line.startsWith('> ')) {
             flushList();
-            out.push(`<div class="dossier-quote">« ${esc(line.slice(2).trim())} »</div>`);
+            out.push(`<div class="dossier-quote">« ${applyInlineFormatting(esc(line.slice(2).trim()))} »</div>`);
         } else {
             flushList();
-            out.push(`<p>${esc(line)}</p>`);
+            out.push(`<p>${applyInlineFormatting(esc(line))}</p>`);
         }
     }
     flushList();
@@ -817,6 +820,11 @@ function submitCustomEntry() {
 function editCustomEntry(id) {
     const entry = customEntriesCache.find(c => c.id === id);
     if (!entry) return;
+    if (!document.getElementById('wfCat')) {
+        navigate('ecriture');
+        setTimeout(() => editCustomEntry(id), 60);
+        return;
+    }
     document.getElementById('wfCat').value = entry.cat;
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
@@ -1668,6 +1676,7 @@ function renderEntry(id) {
         <h1>${esc(e.name)}</h1>
         <p style="color:var(--text-dim); font-size:13.5px; margin-top:4px;">${esc(e.tagline)}</p>
         ${e.quote ? `<p class="entry-quote">${esc(e.quote)}</p>` : ''}
+        ${entryOwnerActionsHtml(e)}
       </div>
       <div class="article-body">
         <div>
@@ -1694,6 +1703,16 @@ function entryGalleryHtml(e) {
       <img src="${encodeURI(img.url)}" alt="${esc(e.name)}">
       ${img.caption ? `<figcaption>${esc(img.caption)}</figcaption>` : ''}
     </figure>`).join('')}</div>`;
+}
+function entryOwnerActionsHtml(e) {
+    if (!e.id.startsWith('custom-')) return '';
+    const rawId = e.id.slice('custom-'.length);
+    const custom = customEntriesCache.find(c => c.id === rawId);
+    if (!custom || custom.author !== getCurrentUser()) return '';
+    return `<div class="entry-owner-actions">
+    <span class="btn btn-ghost" onclick="editCustomEntry('${rawId}')">Modifier</span>
+    <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${rawId}'); navigate('cat-${e.cat}'); }">Supprimer</span>
+  </div>`;
 }
 function opParticlesHtml() {
     let out = '';
@@ -1754,6 +1773,7 @@ function renderPersonnageEntry(e) {
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
+        ${entryOwnerActionsHtml(e)}
         <div class="article-body op-article-body">
           <div>${renderRichBody(e.body)}</div>
           <div class="infobox">
