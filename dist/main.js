@@ -485,6 +485,7 @@ function findEntry(id) { return ENTRIES.find(e => e.id === id); }
 function parseWriteBody(raw) {
     const out = [];
     let buffer = [];
+    let parenBuffer = null;
     const flushBuffer = () => {
         if (buffer.length) {
             out.push(buffer.join(' ').trim());
@@ -493,8 +494,31 @@ function parseWriteBody(raw) {
     };
     for (const rawLine of raw.split('\n')) {
         const line = rawLine.trim();
+        if (parenBuffer !== null) {
+            if (line.endsWith(')')) {
+                parenBuffer.push(line.slice(0, -1));
+                out.push(parenBuffer.join(' ').replace(/\s+/g, ' ').trim());
+                parenBuffer = null;
+            } else {
+                parenBuffer.push(line);
+            }
+            continue;
+        }
         if (!line) {
             flushBuffer();
+            continue;
+        }
+        if (line.startsWith('(')) {
+            flushBuffer();
+            const inner = line.slice(1);
+            const closeIdx = inner.indexOf(')');
+            if (closeIdx === -1) {
+                parenBuffer = [inner];
+            } else {
+                out.push(inner.slice(0, closeIdx).trim());
+                const rest = inner.slice(closeIdx + 1).trim();
+                if (rest) buffer.push(rest);
+            }
             continue;
         }
         if (line.startsWith('#') || line.startsWith('- ') || line.startsWith('* ') || line.startsWith('> ')) {
@@ -504,8 +528,11 @@ function parseWriteBody(raw) {
             buffer.push(line);
         }
     }
+    if (parenBuffer !== null && parenBuffer.length) {
+        out.push(parenBuffer.join(' ').replace(/\s+/g, ' ').trim());
+    }
     flushBuffer();
-    return out;
+    return out.filter(s => s.length > 0);
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -529,9 +556,14 @@ let customEntriesCache = [];
 let customPagesCache = [];
 let customChronoCache = [];
 let wfImagesDraft = [];
+let wfUploadingCount = 0;
 
 function getFirestoreDb() {
     return window.db || null;
+}
+
+function getFirebaseStorage() {
+    return window.storage || null;
 }
 
 const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
@@ -713,10 +745,10 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
       </div>
       <div class="write-row">
-        <label>Images (optionnel, 500 Ko max chacune)</label>
+        <label>Images (optionnel, 10 Mo max chacune)</label>
         <div class="write-images-list" id="wfImagesList">${wfImagesListHtml()}</div>
         <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
       </div>
@@ -765,7 +797,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé.</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -774,13 +806,16 @@ function renderEcriture() {
   `;
 }
 function wfImagesListHtml() {
-    if (!wfImagesDraft.length) return '';
-    return wfImagesDraft.map((img, i) => `
+    let html = wfImagesDraft.map((img, i) => `
     <div class="write-image-item">
       <img src="${img.url}" alt="">
       <input type="text" class="write-image-caption" placeholder="Description de cette image (optionnel)" value="${escAttr(img.caption || '')}" oninput="updateWfImageCaption(${i}, this.value)">
       <span class="btn btn-ghost" onclick="removeWfImage(${i})">Retirer</span>
     </div>`).join('');
+    for (let i = 0; i < wfUploadingCount; i++) {
+        html += `<div class="write-image-uploading">⏳ Envoi de l'image en cours…</div>`;
+    }
+    return html;
 }
 function refreshWfImagesList() {
     const wrap = document.getElementById('wfImagesList');
@@ -789,18 +824,33 @@ function refreshWfImagesList() {
 function handleCustomEntryImage(input) {
     const file = input.files && input.files[0];
     if (!file) return;
-    if (file.size > 500 * 1024) {
-        alert('Image trop lourde (500 Ko maximum).');
+    if (file.size > 10 * 1024 * 1024) {
+        alert('Image trop lourde (10 Mo maximum).');
         input.value = '';
         return;
     }
-    const reader = new FileReader();
-    reader.onload = () => {
-        wfImagesDraft.push({ url: reader.result, caption: '' });
+    const storage = getFirebaseStorage();
+    if (!storage) {
+        alert("Le stockage d'images n'est pas disponible pour le moment.");
         input.value = '';
-        refreshWfImagesList();
-    };
-    reader.readAsDataURL(file);
+        return;
+    }
+    input.value = '';
+    wfUploadingCount++;
+    refreshWfImagesList();
+    const path = 'entry-images/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '-' + file.name;
+    storage.ref().child(path).put(file)
+        .then((snapshot) => snapshot.ref.getDownloadURL())
+        .then((url) => {
+            wfImagesDraft.push({ url, caption: '' });
+            wfUploadingCount--;
+            refreshWfImagesList();
+        })
+        .catch((err) => {
+            wfUploadingCount--;
+            refreshWfImagesList();
+            alert("Erreur lors de l'envoi de l'image : " + err.message);
+        });
 }
 function updateWfImageCaption(i, value) {
     if (wfImagesDraft[i]) wfImagesDraft[i].caption = value;
@@ -826,6 +876,10 @@ function submitCustomEntry() {
     const editId = editIdEl?.value || '';
     if (!name || !tagline || body.length === 0) {
         if (errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
+        return;
+    }
+    if (wfUploadingCount > 0) {
+        if (errEl) errEl.textContent = "Attends la fin de l'envoi des images avant de publier.";
         return;
     }
     const db = getFirestoreDb();
@@ -859,6 +913,7 @@ function editCustomEntry(id) {
     document.getElementById('wfBody').value = entry.body.join('\n\n');
     document.getElementById('wfEditId').value = id;
     wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
+    wfUploadingCount = 0;
     refreshWfImagesList();
     const btn = document.getElementById('wfSubmitBtn');
     if (btn) btn.textContent = 'Enregistrer les modifications';
@@ -874,6 +929,7 @@ function cancelEditCustomEntry() {
     document.getElementById('wfQuote').value = '';
     document.getElementById('wfBody').value = '';
     wfImagesDraft = [];
+    wfUploadingCount = 0;
     refreshWfImagesList();
     const fileEl = document.getElementById('wfImageFile');
     if (fileEl) fileEl.value = '';
@@ -1065,7 +1121,7 @@ function renderCompte() {
         <div class="write-row">
           <label>Contenu (un paragraphe par bloc de lignes)</label>
           <textarea id="cnpBody" rows="6"></textarea>
-          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
+          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
         </div>
         <div class="write-error" id="cnpError"></div>
         <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
