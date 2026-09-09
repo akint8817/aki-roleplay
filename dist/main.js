@@ -783,7 +783,7 @@ function renderEcriture() {
           <p>${esc(m.tagline)}</p>
           <div style="display:flex; gap:8px; margin-top:10px;">
             <span class="btn btn-ghost" onclick="editCustomEntry('${m.id}')">Modifier</span>
-            <span class="btn btn-ghost" onclick="deleteCustomEntry('${m.id}')">Supprimer</span>
+            <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${m.id}'); }">Supprimer</span>
           </div>
         </div>`).join('') : `<div class="empty-state">Aucune page écrite pour l'instant.</div>`}
     </div>
@@ -1131,7 +1131,7 @@ function renderCompte() {
         ${pages.length ? pages.map(p => `
           <div class="account-list-row">
             <span onclick="navigate('page-${p.id}')" style="cursor:pointer;">${esc(p.label)}</span>
-            <span class="btn btn-ghost" onclick="deleteCustomNavPage('${p.id}')">Supprimer</span>
+            <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet onglet ?')){ deleteCustomNavPage('${p.id}'); }">Supprimer</span>
           </div>`).join('') : `<div class="empty-state">Aucun onglet personnalisé pour l'instant.</div>`}
       </div>
     </div>
@@ -1926,24 +1926,24 @@ const CHRONO_TAGS = {
 };
 const CHRONO_EVENTS = [
     { id: 'silence', numeral: 'I', date: '– ???', title: "L'Âge du Silence", tags: ['mystere', 'oxiri'], body: [
-            "Avant les royaumes, avant les cités, avant même que l'humanité ne maîtrise la magie, le monde existait déjà.",
+            "Avant les royaumes, avant les cités, avant même que l'humanité ne découvre l'Essence, le monde existait déjà.",
             "Les anciennes traditions parlent d'une époque où les frontières entre le monde physique et le monde spirituel n'existaient pas réellement : les forêts étaient considérées comme vivantes, les montagnes vénérées comme des êtres conscients, les océans semblaient répondre aux prières.",
-            "Au-dessus de tout cela existait une présence dont le nom apparaît dans plusieurs civilisations : OXIRI. Les premières civilisations ne le décrivaient pas comme un dieu, mais plutôt comme la Volonté du Monde, chargée de maintenir l'équilibre entre la vie et la mort, la création et la destruction, la magie et la matière, le passé et le futur, l'humanité et le reste du monde.",
+            "Au-dessus de tout cela existait une présence dont le nom apparaît dans plusieurs civilisations : OXIRI. Les premières civilisations ne le décrivaient pas comme un dieu, mais plutôt comme la Volonté du Monde, chargée de maintenir l'équilibre entre la vie et la mort, la création et la destruction, l'Essence et la matière, le passé et le futur, l'humanité et le reste du monde.",
             "Cette période reste extrêmement mystérieuse. Aucune preuve ne permet aujourd'hui de déterminer si Oxiri était réellement une divinité, une créature ou une force naturelle.",
         ] },
     { id: 'premiers-hommes', numeral: 'II', date: '– 12 000', title: "La Naissance de l'Humanité", tags: ['lore'], body: [
             "Les premières civilisations humaines apparaissent. Contrairement aux croyances modernes, les humains ne sont pas les premières formes de vie intelligentes.",
             "Ils découvrent rapidement que le monde est traversé par une énergie mystérieuse, qu'ils nomment différemment selon les régions : mana, éther, flux, souffle. Aujourd'hui, cette énergie est simplement appelée Essence.",
-            "Les humains apprennent progressivement à l'utiliser. La magie devient partie intégrante de leur civilisation.",
+            "Les humains apprennent progressivement à l'utiliser. L'Essence devient partie intégrante de leur civilisation — pas comme une magie, mais comme une énergie qu'on apprend à canaliser et à exploiter.",
         ] },
     { id: 'royaumes', numeral: 'III', date: '– 9 500', title: "L'Âge des Royaumes", tags: ['lore', 'politique'], body: [
-            "Les tribus humaines deviennent des royaumes. La magie permet de construire des villes gigantesques : des cristaux énergétiques éclairent les rues, des trains magiques relient les continents, des armes combinent magie, mécanique et alchimie.",
-            "Les grandes villes possèdent des gratte-ciels enchantés, des réseaux de transport magiques, des académies de magie, des guildes, des corporations, des laboratoires, des temples.",
-            "Mais une chose reste inexpliquée : certains artefacts semblent posséder une énergie différente de celle de la magie humaine — une énergie beaucoup plus ancienne.",
+            "Les tribus humaines deviennent des royaumes. La maîtrise de l'Essence permet de construire des villes gigantesques : des cristaux énergétiques éclairent les rues, des trains alimentés à l'Essence relient les continents, des armes combinent Essence, mécanique et ingénierie.",
+            "Les grandes villes possèdent des gratte-ciels illuminés par l'Essence, des réseaux de transport à Essence, des académies scientifiques, des guildes, des corporations, des laboratoires, des temples.",
+            "Mais une chose reste inexpliquée : certains artefacts semblent posséder une énergie différente de celle de l'Essence humaine — une énergie beaucoup plus ancienne.",
         ] },
     { id: 'contact', numeral: 'IV', date: '– 7 800', title: "La Première Rencontre", tags: ['mystere', 'oxiri'], body: [
             "Des explorateurs découvrent des ruines impossibles à dater. Au centre se trouve une gigantesque structure noire.",
-            "Lorsqu'un groupe de chercheurs entre en contact avec elle, tous les cristaux magiques de la région se mettent à réagir. Une voix est entendue, une seule phrase :",
+            "Lorsqu'un groupe de chercheurs entre en contact avec elle, tous les cristaux d'Essence de la région se mettent à réagir. Une voix est entendue, une seule phrase :",
             { quote: "Vous êtes allés trop loin." },
             "Le phénomène est attribué à une ancienne divinité. Le nom Oxiri apparaît pour la première fois dans les archives humaines.",
         ] },
@@ -1953,7 +1953,7 @@ const CHRONO_EVENTS = [
             "Durant cette période apparaissent progressivement les artefacts légendaires : le Jugement de l'Équinoxe, la Lamentation des Morts, le Serment de Helix, Souvenir du Passé, les Jumeaux d'Éden, Division Astrale. Leur véritable origine reste inconnue.",
         ] },
     { id: 'chute', numeral: 'VI', date: '– 1 000', title: "La Chute", tags: ['oxiri', 'combat'], body: [
-            "C'est le début de l'histoire connue. Le ciel change. Les cristaux magiques deviennent noirs. Les océans commencent à se vider de leur énergie.",
+            "C'est le début de l'histoire connue. Le ciel change. Les cristaux d'Essence deviennent noirs. Les océans commencent à se vider de leur énergie.",
             "Puis les premières créatures apparaissent. Les humains les appellent Entropy — des créatures qui ne semblent répondre à aucune logique biologique. Certaines ressemblent à des animaux, d'autres à des humains, d'autres encore semblent être des concepts ayant pris forme.",
             "Elles apparaissent partout. Et derrière elles... Oxiri.",
         ] },
@@ -1973,7 +1973,7 @@ const CHRONO_EVENTS = [
             "Mais progressivement, l'humanité recommence à prospérer. Et surtout, elle commence à avoir peur — peur qu'Oxiri revienne.",
         ] },
     { id: 'progres', numeral: 'X', date: '– 400 à – 250', title: "L'Ère du Progrès", tags: ['lore', 'politique'], body: [
-            "Les royaumes commencent à développer une technologie beaucoup plus avancée. La magie devient industrielle : les grandes villes ressemblent désormais à des métropoles fantastiques, des voitures magiques circulent dans les rues, des armes à feu utilisent des cristaux d'Essence.",
+            "Les royaumes commencent à développer une technologie beaucoup plus avancée. L'exploitation de l'Essence devient industrielle : les grandes villes ressemblent désormais à des métropoles futuristes, des voitures à Essence circulent dans les rues, des armes à feu utilisent des cristaux d'Essence.",
             "Les humains commencent à penser qu'ils ont enfin dépassé leur passé. Mais certains scientifiques pensent autrement : ils cherchent un moyen de rendre l'humanité indépendante de la volonté des dieux.",
         ] },
     { id: 'naissance-halcyon', numeral: 'XI', date: '– 250', title: "La Naissance de Halcyon", tags: ['halcyon', 'politique'], body: [
@@ -1993,7 +1993,7 @@ const CHRONO_EVENTS = [
             "Les artefacts Oxiriens sont utilisés simultanément contre elle. Des milliers de soldats meurent, des villes entières sont sacrifiées. Finalement... elle tombe.",
         ] },
     { id: 'voile', numeral: 'XIV', date: '– 0', title: "Le Voile", tags: ['mystere', 'oxiri'], body: [
-            "Au moment de sa mort, une lumière gigantesque recouvre le monde. Pendant plusieurs jours, aucune magie ne fonctionne.",
+            "Au moment de sa mort, une lumière gigantesque recouvre le monde. Pendant plusieurs jours, plus aucun dispositif lié à l'Essence ne fonctionne.",
             "Les Entropy disparaissent. Oxiri disparaît une seconde fois. La guerre est officiellement déclarée terminée.",
             "Mais les survivants découvrent quelque chose : le corps de l'Entropy a disparu.",
         ] },
@@ -2017,7 +2017,7 @@ const CHRONO_EVENTS = [
             "Cette organisation devient connue sous le nom d'Eidolon.",
         ] },
     { id: 'ere-moderne', numeral: 'XIX', date: '+ 15', title: "L'Ère Moderne", tags: ['social', 'lore'], body: [
-            "Le monde ressemble désormais à une civilisation moderne fantastique, mélangeant magie, technologie et architecture futuriste. Les humains utilisent quotidiennement l'Essence, et les hybrides vivent parmi eux.",
+            "Le monde ressemble désormais à une civilisation moderne, mélangeant technologie de pointe et architecture futuriste. Les humains utilisent quotidiennement l'Essence, et les hybrides vivent parmi eux.",
             "Halcyon contrôle une grande partie des infrastructures mondiales. Mais des zones restent contaminées par l'ancienne Éruption — et les Entropy recommencent à apparaître. Faiblement. Puis de plus en plus.",
         ] },
     { id: 'retour-oxiri', numeral: 'XX', date: '+ 18', title: "Le Retour d'Oxiri", tags: ['mystere', 'oxiri', 'avenement'], body: [
@@ -2027,7 +2027,7 @@ const CHRONO_EVENTS = [
             "Halcyon déclare l'état d'urgence. Eidolon disparaît dans la clandestinité. Les hybrides sont mobilisés.",
         ] },
     { id: 'aube-fin', numeral: 'XXI', date: '+ 20 — Début du jeu', title: "L'Aube de la Fin", tags: ['avenement', 'mystere'], body: [
-            "Le joueur commence son histoire dans une grande cité contrôlée par Halcyon : une ville moderne, des néons, des trains magiques, des gratte-ciels, des académies, des temples, des laboratoires, des humains, des hybrides. Tout semble fonctionner normalement.",
+            "Le joueur commence son histoire dans une grande cité contrôlée par Halcyon : une ville moderne, des néons, des trains à Essence, des gratte-ciels, des académies, des temples, des laboratoires, des humains, des hybrides. Tout semble fonctionner normalement.",
             "Puis une Entropy apparaît au centre de la ville. Mais quelque chose est différent : elle ne massacre personne. Elle regarde simplement le ciel, et elle dit :",
             { quote: "Pourquoi continuez-vous à vivre dans un monde qui vous demande de mourir ?" },
             "Puis elle disparaît.",
