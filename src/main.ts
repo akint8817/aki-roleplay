@@ -656,6 +656,19 @@ function parseWriteBody(raw: string): string[] {
   return out.filter(s => s.length > 0);
 }
 
+// Même logique que parseWriteBody, mais pour la chronologie : une ligne qui
+// commence par "> " devient une citation encadrée (comme dans les événements
+// d'origine), le reste devient du texte normal.
+function parseChronoBody(raw: string): ChronoBodyItem[] {
+  return parseWriteBody(raw).map(line =>
+    line.startsWith('> ') ? { quote: line.slice(2).trim() } : line
+  );
+}
+
+function chronoBodyToText(body: ChronoBodyItem[]): string {
+  return body.map(item => typeof item === 'string' ? item : ('> ' + item.quote)).join('\n\n');
+}
+
 /* ---------------- CONNEXION & ÉCRITURE (pages écrites depuis le site) ----------------
    Authentification purement côté client (pas de serveur) : un simple filtre pour
    réserver l'accès à l'espace d'écriture. Les pages créées sont stockées dans le
@@ -943,8 +956,10 @@ function renderEcriture(): string {
 
     <h1 id="chronoWriteForm" style="font-size:26px; margin:44px 0 6px;">Chronologie</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
-      Ajoute un événement à la frise chronologique du monde. Le rendu visuel (numéro, position sur la frise, style des tags)
-      est généré automatiquement — tu n'as qu'à remplir la date, le titre, les catégories et le texte.
+      Ajoute un événement à la frise chronologique du monde. Il est placé automatiquement au bon endroit
+      dans la frise selon sa date (numéro, position, style des tags générés tout seuls) — tu n'as qu'à
+      remplir la date, le titre, les catégories et le texte. Tu peux aussi modifier n'importe quel
+      événement déjà écrit, y compris ceux déjà présents sur la frise, avec le bouton « Modifier ».
     </p>
     <div class="write-form">
       <input type="hidden" id="ceEditId" value="">
@@ -967,7 +982,7 @@ function renderEcriture(): string {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code>&gt; </code> pour une citation encadrée.</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -1111,7 +1126,7 @@ function submitChronoEvent(): void {
   const date = (dateEl?.value || '').trim();
   const title = (titleEl?.value || '').trim();
   const tags = Array.from(document.querySelectorAll<HTMLInputElement>('.ceTagCheck:checked')).map(c => c.value);
-  const body = parseWriteBody(bodyEl?.value || '');
+  const body = parseChronoBody(bodyEl?.value || '');
   const editId = editIdEl?.value || '';
   if(!date || !title || body.length === 0){
     if(errEl) errEl.textContent = 'Remplis au moins la date, le titre et le texte.';
@@ -1131,14 +1146,18 @@ function submitChronoEvent(): void {
 }
 
 function editChronoEvent(id: string): void {
-  const ev = customChronoCache.find(c=>c.id===id);
-  if(!ev) return;
+  // On modifie soit un événement déjà personnalisé, soit un événement
+  // d'origine (écrit dans le code) — dans ce dernier cas, l'enregistrement
+  // créera une version personnalisée qui le remplace, sous le même id.
+  const source: { date: string; title: string; tags: string[]; body: ChronoBodyItem[] } | undefined =
+    customChronoCache.find(c=>c.id===id) || CHRONO_EVENTS.find(e=>e.id===id);
+  if(!source) return;
   navigate('ecriture');
   setTimeout(() => {
-    (document.getElementById('ceDate') as HTMLInputElement).value = ev.date;
-    (document.getElementById('ceTitle') as HTMLInputElement).value = ev.title;
-    (document.getElementById('ceBody') as HTMLTextAreaElement).value = ev.body.join('\n\n');
-    document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c => { c.checked = ev.tags.includes(c.value); });
+    (document.getElementById('ceDate') as HTMLInputElement).value = source.date;
+    (document.getElementById('ceTitle') as HTMLInputElement).value = source.title;
+    (document.getElementById('ceBody') as HTMLTextAreaElement).value = chronoBodyToText(source.body);
+    document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c => { c.checked = source.tags.includes(c.value); });
     (document.getElementById('ceEditId') as HTMLInputElement).value = id;
     const btn = document.getElementById('ceSubmitBtn');
     if(btn) btn.textContent = 'Enregistrer les modifications';
@@ -2152,7 +2171,7 @@ interface CustomChronoEvent {
   date: string;
   title: string;
   tags: string[];
-  body: string[];
+  body: ChronoBodyItem[];
 }
 
 const CHRONO_EVENTS: ChronoEvent[] = [
@@ -2274,11 +2293,30 @@ function toRoman(num: number): string {
   return res;
 }
 
+// Convertit une date de chronologie (ex : "– 12 000", "-12000", "+ 5 à + 15",
+// "– ???") en nombre pour pouvoir trier les événements chronologiquement,
+// quel que soit l'endroit où on les ajoute. Les dates non numériques
+// (« ??? ») sont considérées comme les plus anciennes de toutes.
+function parseChronoDateValue(date: string): number {
+  const normalized = (date || '').replace(/[–−]/g, '-');
+  const match = normalized.match(/([+-])?\s*(\d[\d\s]*\d|\d)/);
+  if(!match) return -Infinity;
+  const sign = match[1] === '-' ? -1 : 1;
+  const num = parseInt(match[2].replace(/\s+/g,''), 10);
+  return isNaN(num) ? -Infinity : sign * num;
+}
+
 function getAllChronoEvents(): ChronoEvent[] {
+  // Un événement personnalisé dont l'id correspond à un événement d'origine
+  // remplace son contenu (c'est ainsi qu'on modifie un événement déjà écrit
+  // dans le code) ; sinon, c'est un tout nouvel événement.
+  const overrideIds = new Set(customChronoCache.map(c => c.id));
+  const baseEvents: ChronoEvent[] = CHRONO_EVENTS.filter(ev => !overrideIds.has(ev.id)).map(ev => ({ ...ev }));
   const custom: ChronoEvent[] = customChronoCache.map(c => ({
     id: c.id, numeral: '', date: c.date, title: c.title, tags: c.tags, body: c.body,
   }));
-  const merged = [...CHRONO_EVENTS, ...custom];
+  const merged = [...baseEvents, ...custom];
+  merged.sort((a,b) => parseChronoDateValue(a.date) - parseChronoDateValue(b.date));
   merged.forEach((ev, i) => { ev.numeral = toRoman(i+1); });
   return merged;
 }
@@ -2301,11 +2339,11 @@ function renderChronologie(): string {
   const loggedIn = isLoggedIn();
   const rows = getAllChronoEvents().map((ev, i) => {
     const side = i % 2 === 0 ? 'chrono-left' : 'chrono-right';
-    const isCustom = customChronoCache.some(c => c.id === ev.id);
-    const actions = (loggedIn && isCustom) ? `
+    const isOverridden = customChronoCache.some(c => c.id === ev.id);
+    const actions = loggedIn ? `
         <div class="chrono-actions">
           <span class="btn btn-ghost" onclick="editChronoEvent('${ev.id}')">Modifier</span>
-          <span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>
+          ${isOverridden ? `<span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>` : ''}
         </div>` : '';
     return `
     <div class="chrono-row ${side}">
