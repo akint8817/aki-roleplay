@@ -796,6 +796,8 @@ interface CustomEntry {
   body: string[];
   author: string;
   images?: EntryImage[];
+  specialite?: string;
+  capacite?: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -852,7 +854,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfSpecialite','wfCapacite','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -893,7 +895,7 @@ function initFirestoreSync(): void {
     snap.forEach((doc: any) => {
       const data = doc.data();
       const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite: data.specialite || undefined, capacite: data.capacite || undefined });
     });
     for(let i = ENTRIES.length - 1; i >= 0; i--){
       if(ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -936,9 +938,13 @@ function getCustomEntriesRaw(): CustomEntry[] {
 }
 
 function customEntryToEntry(c: CustomEntry): Entry {
+  const info: Record<string,string> = {};
+  if(c.specialite) info['Spécificité'] = c.specialite;
+  if(c.capacite) info['Capacité'] = c.capacite;
+  info['Auteur'] = capitalize(c.author || 'aki');
   return {
     id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
-    quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
+    quote: c.quote, summary: c.tagline, info, body: c.body,
     image: c.images && c.images[0] ? c.images[0].url : undefined,
     images: c.images,
   };
@@ -1036,6 +1042,15 @@ function renderEcriture(): string {
       <div class="write-row">
         <label>Citation (optionnel)</label>
         <input id="wfQuote" type="text" placeholder="« ... »">
+      </div>
+      <div class="write-row">
+        <label>Spécificité (optionnel)</label>
+        <input id="wfSpecialite" type="text" placeholder="Ex : Rang A, Faction Halcyon…">
+      </div>
+      <div class="write-row">
+        <label>Capacité (optionnel)</label>
+        <input id="wfCapacite" type="text" placeholder="Ex : Manipulation de l'Essence…">
+        <div class="write-hint">La spécificité et la capacité s'affichent dans l'encadré d'infos, à côté de la fiche.</div>
       </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
@@ -1150,6 +1165,8 @@ function submitCustomEntry(): void {
   const nameEl = document.getElementById('wfName') as HTMLInputElement | null;
   const taglineEl = document.getElementById('wfTagline') as HTMLInputElement | null;
   const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
+  const specialiteEl = document.getElementById('wfSpecialite') as HTMLInputElement | null;
+  const capaciteEl = document.getElementById('wfCapacite') as HTMLInputElement | null;
   const bodyEl = document.getElementById('wfBody') as HTMLTextAreaElement | null;
   const editIdEl = document.getElementById('wfEditId') as HTMLInputElement | null;
   const errEl = document.getElementById('wfError');
@@ -1157,6 +1174,8 @@ function submitCustomEntry(): void {
   const name = (nameEl?.value || '').trim();
   const tagline = (taglineEl?.value || '').trim();
   const quote = (quoteEl?.value || '').trim();
+  const specialite = (specialiteEl?.value || '').trim();
+  const capacite = (capaciteEl?.value || '').trim();
   const body = parseWriteBody(bodyEl?.value || '');
   const images = wfImagesDraft.slice();
   const editId = editIdEl?.value || '';
@@ -1170,12 +1189,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, body, images,
+      cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images,
       author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, body, images, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
   cancelEditCustomEntry();
@@ -1193,6 +1212,8 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfName') as HTMLInputElement).value = entry.name;
   (document.getElementById('wfTagline') as HTMLInputElement).value = entry.tagline;
   (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
+  (document.getElementById('wfSpecialite') as HTMLInputElement).value = entry.specialite || '';
+  (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.capacite || '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
   wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1210,6 +1231,8 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfName') as HTMLInputElement).value = '';
   (document.getElementById('wfTagline') as HTMLInputElement).value = '';
   (document.getElementById('wfQuote') as HTMLInputElement).value = '';
+  (document.getElementById('wfSpecialite') as HTMLInputElement).value = '';
+  (document.getElementById('wfCapacite') as HTMLInputElement).value = '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
   wfImagesDraft = [];
   refreshWfImagesList();

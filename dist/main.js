@@ -669,7 +669,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfSpecialite', 'wfCapacite', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -710,7 +710,7 @@ function initFirestoreSync() {
         snap.forEach((doc) => {
             const data = doc.data();
             const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images });
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite: data.specialite || undefined, capacite: data.capacite || undefined });
         });
         for (let i = ENTRIES.length - 1; i >= 0; i--) {
             if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -751,9 +751,13 @@ function getCustomEntriesRaw() {
     return customEntriesCache;
 }
 function customEntryToEntry(c) {
+    const info = {};
+    if (c.specialite) info['Spécificité'] = c.specialite;
+    if (c.capacite) info['Capacité'] = c.capacite;
+    info['Auteur'] = capitalize(c.author || 'aki');
     return {
         id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
-        quote: c.quote, summary: c.tagline, info: { 'Auteur': capitalize(c.author || 'aki') }, body: c.body,
+        quote: c.quote, summary: c.tagline, info, body: c.body,
         image: c.images && c.images[0] ? c.images[0].url : undefined,
         images: c.images,
     };
@@ -844,6 +848,15 @@ function renderEcriture() {
       <div class="write-row">
         <label>Citation (optionnel)</label>
         <input id="wfQuote" type="text" placeholder="« ... »">
+      </div>
+      <div class="write-row">
+        <label>Spécificité (optionnel)</label>
+        <input id="wfSpecialite" type="text" placeholder="Ex : Rang A, Faction Halcyon…">
+      </div>
+      <div class="write-row">
+        <label>Capacité (optionnel)</label>
+        <input id="wfCapacite" type="text" placeholder="Ex : Manipulation de l'Essence…">
+        <div class="write-hint">La spécificité et la capacité s'affichent dans l'encadré d'infos, à côté de la fiche.</div>
       </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
@@ -952,6 +965,8 @@ function submitCustomEntry() {
     const nameEl = document.getElementById('wfName');
     const taglineEl = document.getElementById('wfTagline');
     const quoteEl = document.getElementById('wfQuote');
+    const specialiteEl = document.getElementById('wfSpecialite');
+    const capaciteEl = document.getElementById('wfCapacite');
     const bodyEl = document.getElementById('wfBody');
     const editIdEl = document.getElementById('wfEditId');
     const errEl = document.getElementById('wfError');
@@ -959,6 +974,8 @@ function submitCustomEntry() {
     const name = (nameEl?.value || '').trim();
     const tagline = (taglineEl?.value || '').trim();
     const quote = (quoteEl?.value || '').trim();
+    const specialite = (specialiteEl?.value || '').trim();
+    const capacite = (capaciteEl?.value || '').trim();
     const body = parseWriteBody(bodyEl?.value || '');
     const images = wfImagesDraft.slice();
     const editId = editIdEl?.value || '';
@@ -972,12 +989,12 @@ function submitCustomEntry() {
     if (editId) {
         const existing = customEntriesCache.find(c => c.id === editId);
         db.collection('entries').doc(editId).set({
-            cat, name, tagline, quote: quote || null, body, images,
+            cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images,
             author: existing ? existing.author : (getCurrentUser() || 'aki'),
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
         db.collection('entries').add({
-            cat, name, tagline, quote: quote || null, body, images, author: getCurrentUser() || 'aki',
+            cat, name, tagline, quote: quote || null, specialite: specialite || null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
     cancelEditCustomEntry();
@@ -994,6 +1011,8 @@ function editCustomEntry(id) {
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
     document.getElementById('wfQuote').value = entry.quote || '';
+    document.getElementById('wfSpecialite').value = entry.specialite || '';
+    document.getElementById('wfCapacite').value = entry.capacite || '';
     document.getElementById('wfBody').value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfEditId').value = id;
     wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1010,6 +1029,8 @@ function cancelEditCustomEntry() {
     document.getElementById('wfName').value = '';
     document.getElementById('wfTagline').value = '';
     document.getElementById('wfQuote').value = '';
+    document.getElementById('wfSpecialite').value = '';
+    document.getElementById('wfCapacite').value = '';
     document.getElementById('wfBody').value = '';
     wfImagesDraft = [];
     refreshWfImagesList();
