@@ -452,6 +452,75 @@ function escAttr(s) {
 function applyInlineFormatting(escapedText) {
     return escapedText.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
 }
+const LOCK_SENTINEL = String.fromCharCode(0) + 'LOCK' + String.fromCharCode(0);
+function simpleHash(s) {
+    let h = 0;
+    for (let i = 0; i < s.length; i++) { h = (Math.imul(31, h) + s.charCodeAt(i)) | 0; }
+    return (h >>> 0).toString(36);
+}
+function encodeLockedBlock(code, innerLines) {
+    return LOCK_SENTINEL + code + LOCK_SENTINEL[0] + JSON.stringify(innerLines);
+}
+function lockedBlockHtml(code, innerLines) {
+    const blockId = 'lock-' + Math.random().toString(36).slice(2, 10);
+    const innerHtml = renderRichBody(innerLines);
+    const hash = simpleHash(code.trim().toLowerCase());
+    return `
+    <div class="locked-archive" id="${blockId}" data-code-hash="${hash}">
+      <div class="locked-archive-head">
+        <span class="locked-archive-icon">🔒</span>
+        <span class="locked-archive-label">Archive verrouillée</span>
+      </div>
+      <div class="locked-archive-form">
+        <input type="text" class="locked-archive-input" placeholder="Entrer le code d'accès…" onkeydown="if(event.key==='Enter'){ unlockArchive('${blockId}'); }">
+        <span class="btn btn-ghost" onclick="unlockArchive('${blockId}')">Déverrouiller</span>
+      </div>
+      <div class="locked-archive-error"></div>
+      <div class="locked-archive-content">${innerHtml}</div>
+    </div>
+  `;
+}
+function unlockArchive(blockId) {
+    const block = document.getElementById(blockId);
+    if (!block) return;
+    const input = block.querySelector('.locked-archive-input');
+    const errEl = block.querySelector('.locked-archive-error');
+    const attempt = (input?.value || '').trim().toLowerCase();
+    if (simpleHash(attempt) === block.dataset.codeHash) {
+        if (errEl) errEl.textContent = '';
+        block.classList.add('unlocking');
+        setTimeout(() => {
+            block.classList.remove('unlocking');
+            block.classList.add('unlocked');
+        }, 550);
+    } else {
+        if (errEl) errEl.textContent = 'Code incorrect.';
+        block.classList.remove('shake');
+        void block.offsetWidth;
+        block.classList.add('shake');
+    }
+}
+function tryRenderLockedBlock(raw) {
+    if (!raw.startsWith(LOCK_SENTINEL)) return null;
+    const rest = raw.slice(LOCK_SENTINEL.length);
+    const sepIdx = rest.indexOf(LOCK_SENTINEL[0]);
+    if (sepIdx === -1) return null;
+    const code = rest.slice(0, sepIdx);
+    let innerLines;
+    try { innerLines = JSON.parse(rest.slice(sepIdx + 1)); } catch { innerLines = []; }
+    return lockedBlockHtml(code, innerLines);
+}
+function decodeBodyLineForEdit(line) {
+    if (!line.startsWith(LOCK_SENTINEL)) return line;
+    const rest = line.slice(LOCK_SENTINEL.length);
+    const sepIdx = rest.indexOf(LOCK_SENTINEL[0]);
+    if (sepIdx === -1) return line;
+    const code = rest.slice(0, sepIdx);
+    let innerLines;
+    try { innerLines = JSON.parse(rest.slice(sepIdx + 1)); } catch { innerLines = []; }
+    const innerText = innerLines.map(decodeBodyLineForEdit).join('\n\n');
+    return `[[${code}]]\n${innerText}\n[[/]]`;
+}
 function renderRichBody(lines) {
     const out = [];
     let list = [];
@@ -462,6 +531,8 @@ function renderRichBody(lines) {
         }
     };
     for (const raw of lines) {
+        const locked = tryRenderLockedBlock(raw);
+        if (locked !== null) { flushList(); out.push(locked); continue; }
         const line = raw.trim();
         if (!line) continue;
         if (line.startsWith('#')) {
@@ -486,6 +557,8 @@ function parseWriteBody(raw) {
     const out = [];
     let buffer = [];
     let parenBuffer = null;
+    let lockBuffer = null;
+    let lockCode = '';
     const flushBuffer = () => {
         if (buffer.length) {
             out.push(buffer.join(' ').trim());
@@ -494,6 +567,16 @@ function parseWriteBody(raw) {
     };
     for (const rawLine of raw.split('\n')) {
         const line = rawLine.trim();
+        if (lockBuffer !== null) {
+            if (line === '[[/]]') {
+                out.push(encodeLockedBlock(lockCode, parseWriteBody(lockBuffer.join('\n'))));
+                lockBuffer = null;
+                lockCode = '';
+            } else {
+                lockBuffer.push(rawLine);
+            }
+            continue;
+        }
         if (parenBuffer !== null) {
             if (line.endsWith(')')) {
                 parenBuffer.push(line.slice(0, -1));
@@ -521,6 +604,15 @@ function parseWriteBody(raw) {
             }
             continue;
         }
+        if (line !== '[[/]]') {
+            const lockMatch = line.match(/^\[\[(.+)\]\]$/);
+            if (lockMatch) {
+                flushBuffer();
+                lockCode = lockMatch[1].trim();
+                lockBuffer = [];
+                continue;
+            }
+        }
         if (line.startsWith('#') || line.startsWith('- ') || line.startsWith('* ') || line.startsWith('> ')) {
             flushBuffer();
             out.push(line);
@@ -530,6 +622,9 @@ function parseWriteBody(raw) {
     }
     if (parenBuffer !== null && parenBuffer.length) {
         out.push(parenBuffer.join(' ').replace(/\s+/g, ' ').trim());
+    }
+    if (lockBuffer !== null && lockBuffer.length) {
+        out.push(encodeLockedBlock(lockCode, parseWriteBody(lockBuffer.join('\n'))));
     }
     flushBuffer();
     return out.filter(s => s.length > 0);
@@ -542,7 +637,7 @@ function parseChronoBody(raw) {
 }
 
 function chronoBodyToText(body) {
-    return body.map(item => typeof item === 'string' ? item : ('> ' + item.quote)).join('\n\n');
+    return body.map(item => typeof item === 'string' ? decodeBodyLineForEdit(item) : ('> ' + item.quote)).join('\n\n');
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -762,7 +857,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
       </div>
       <div class="write-row">
         <label>Images (optionnel, 700 Ko au total pour cette fiche)</label>
@@ -816,7 +911,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -908,7 +1003,7 @@ function editCustomEntry(id) {
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
     document.getElementById('wfQuote').value = entry.quote || '';
-    document.getElementById('wfBody').value = entry.body.join('\n\n');
+    document.getElementById('wfBody').value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfEditId').value = id;
     wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
     refreshWfImagesList();
@@ -1122,7 +1217,7 @@ function renderCompte() {
         <div class="write-row">
           <label>Contenu (un paragraphe par bloc de lignes)</label>
           <textarea id="cnpBody" rows="6"></textarea>
-          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
+          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
         </div>
         <div class="write-error" id="cnpError"></div>
         <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
@@ -2085,6 +2180,8 @@ function chronoBodyHtml(body) {
             out.push(`<p class="chrono-quote">« ${applyInlineFormatting(esc(p.quote))} »</p>`);
             continue;
         }
+        const locked = tryRenderLockedBlock(p);
+        if (locked !== null) { flushList(); out.push(locked); continue; }
         const line = p.trim();
         if (line.startsWith('#')) {
             flushList();
