@@ -519,7 +519,7 @@ function decodeBodyLineForEdit(line) {
     let innerLines;
     try { innerLines = JSON.parse(rest.slice(sepIdx + 1)); } catch { innerLines = []; }
     const innerText = innerLines.map(decodeBodyLineForEdit).join('\n\n');
-    return `[[${code}]]\n${innerText}\n[[/]]`;
+    return `[${code}]${innerText}]`;
 }
 function renderRichBody(lines) {
     const out = [];
@@ -553,12 +553,16 @@ function renderRichBody(lines) {
 }
 function findEntry(id) { return ENTRIES.find(e => e.id === id); }
 
+function extractLockedBlocks(raw) {
+    return raw.replace(/\[([^\[\]\n]+)\]([\s\S]*?)\]/g, (_m, code, inner) => {
+        return '\n' + encodeLockedBlock(code.trim(), parseWriteBody(inner)) + '\n';
+    });
+}
 function parseWriteBody(raw) {
+    raw = extractLockedBlocks(raw);
     const out = [];
     let buffer = [];
     let parenBuffer = null;
-    let lockBuffer = null;
-    let lockCode = '';
     const flushBuffer = () => {
         if (buffer.length) {
             out.push(buffer.join(' ').trim());
@@ -567,14 +571,9 @@ function parseWriteBody(raw) {
     };
     for (const rawLine of raw.split('\n')) {
         const line = rawLine.trim();
-        if (lockBuffer !== null) {
-            if (line === '[[/]]') {
-                out.push(encodeLockedBlock(lockCode, parseWriteBody(lockBuffer.join('\n'))));
-                lockBuffer = null;
-                lockCode = '';
-            } else {
-                lockBuffer.push(rawLine);
-            }
+        if (line.startsWith(LOCK_SENTINEL)) {
+            flushBuffer();
+            out.push(line);
             continue;
         }
         if (parenBuffer !== null) {
@@ -604,15 +603,6 @@ function parseWriteBody(raw) {
             }
             continue;
         }
-        if (line !== '[[/]]') {
-            const lockMatch = line.match(/^\[\[(.+)\]\]$/);
-            if (lockMatch) {
-                flushBuffer();
-                lockCode = lockMatch[1].trim();
-                lockBuffer = [];
-                continue;
-            }
-        }
         if (line.startsWith('#') || line.startsWith('- ') || line.startsWith('* ') || line.startsWith('> ')) {
             flushBuffer();
             out.push(line);
@@ -622,9 +612,6 @@ function parseWriteBody(raw) {
     }
     if (parenBuffer !== null && parenBuffer.length) {
         out.push(parenBuffer.join(' ').replace(/\s+/g, ' ').trim());
-    }
-    if (lockBuffer !== null && lockBuffer.length) {
-        out.push(encodeLockedBlock(lockCode, parseWriteBody(lockBuffer.join('\n'))));
     }
     flushBuffer();
     return out.filter(s => s.length > 0);
@@ -857,7 +844,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="wfBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[code]</code> suivi du texte caché puis <code>]</code> pour créer une archive verrouillée déverrouillable avec ce code (ex : <code>[1234]texte secret]</code>).</div>
       </div>
       <div class="write-row">
         <label>Images (optionnel, 700 Ko au total pour cette fiche)</label>
@@ -911,7 +898,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[code]</code> suivi du texte caché puis <code>]</code> pour créer une archive verrouillée déverrouillable avec ce code (ex : <code>[1234]texte secret]</code>).</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -1217,7 +1204,7 @@ function renderCompte() {
         <div class="write-row">
           <label>Contenu (un paragraphe par bloc de lignes)</label>
           <textarea id="cnpBody" rows="6"></textarea>
-          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[[code]]</code> puis le texte caché puis <code>[[/]]</code> sur sa propre ligne pour créer une archive verrouillée déverrouillable avec ce code.</div>
+          <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[code]</code> suivi du texte caché puis <code>]</code> pour créer une archive verrouillée déverrouillable avec ce code (ex : <code>[1234]texte secret]</code>).</div>
         </div>
         <div class="write-error" id="cnpError"></div>
         <span class="btn btn-primary" onclick="addCustomNavPage()">Ajouter l'onglet</span>
