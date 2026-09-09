@@ -653,7 +653,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
+            list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [], deleted: !!data.deleted });
         });
         customChronoCache = list;
         const draft = captureDraftFormState();
@@ -1006,7 +1006,12 @@ function cancelEditChronoEvent() {
 function deleteChronoEvent(id) {
     const db = getFirestoreDb();
     if (!db) return;
-    db.collection('chronoEvents').doc(id).delete();
+    const isOriginal = CHRONO_EVENTS.some(ev => ev.id === id);
+    if (isOriginal) {
+        db.collection('chronoEvents').doc(id).set({ deleted: true });
+    } else {
+        db.collection('chronoEvents').doc(id).delete();
+    }
 }
 
 const AVATAR_KEY = 'akiAvatar';
@@ -2045,9 +2050,13 @@ function parseChronoDateValue(date) {
     return isNaN(num) ? -Infinity : sign * num;
 }
 function getAllChronoEvents() {
-    const overrideIds = new Set(customChronoCache.map(c => c.id));
-    const baseEvents = CHRONO_EVENTS.filter(ev => !overrideIds.has(ev.id)).map(ev => ({ ...ev }));
-    const custom = customChronoCache.map(c => ({
+    const deletedIds = new Set(customChronoCache.filter(c => c.deleted).map(c => c.id));
+    const overrides = customChronoCache.filter(c => !c.deleted);
+    const overrideIds = new Set(overrides.map(c => c.id));
+    const baseEvents = CHRONO_EVENTS
+        .filter(ev => !overrideIds.has(ev.id) && !deletedIds.has(ev.id))
+        .map(ev => ({ ...ev }));
+    const custom = overrides.map(c => ({
         id: c.id, numeral: '', date: c.date, title: c.title, tags: c.tags, body: c.body,
     }));
     const merged = [...baseEvents, ...custom];
@@ -2071,11 +2080,10 @@ function renderChronologie() {
     const loggedIn = isLoggedIn();
     const rows = getAllChronoEvents().map((ev, i) => {
         const side = i % 2 === 0 ? 'chrono-left' : 'chrono-right';
-        const isOverridden = customChronoCache.some(c => c.id === ev.id);
         const actions = loggedIn ? `
         <div class="chrono-actions">
           <span class="btn btn-ghost" onclick="editChronoEvent('${ev.id}')">Modifier</span>
-          ${isOverridden ? `<span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>` : ''}
+          <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet événement de la chronologie ?')){ deleteChronoEvent('${ev.id}'); }">Supprimer</span>
         </div>` : '';
         return `
     <div class="chrono-row ${side}">

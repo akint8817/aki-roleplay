@@ -810,7 +810,7 @@ function initFirestoreSync(): void {
     const list: CustomChronoEvent[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [] });
+      list.push({ id: doc.id, date: data.date, title: data.title, tags: data.tags || [], body: data.body || [], deleted: !!data.deleted });
     });
     customChronoCache = list;
     const draft = captureDraftFormState();
@@ -1188,7 +1188,14 @@ function cancelEditChronoEvent(): void {
 function deleteChronoEvent(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
-  db.collection('chronoEvents').doc(id).delete();
+  const isOriginal = CHRONO_EVENTS.some(ev => ev.id === id);
+  if(isOriginal){
+    // On ne peut pas retirer un événement écrit dans le code : on le marque
+    // "supprimé" pour qu'il disparaisse de la frise chez tout le monde.
+    db.collection('chronoEvents').doc(id).set({ deleted: true });
+  } else {
+    db.collection('chronoEvents').doc(id).delete();
+  }
 }
 
 /* ---------------- COMPTE — photo de profil et onglets de navigation personnalisés ---------------- */
@@ -2172,6 +2179,7 @@ interface CustomChronoEvent {
   title: string;
   tags: string[];
   body: ChronoBodyItem[];
+  deleted?: boolean;
 }
 
 const CHRONO_EVENTS: ChronoEvent[] = [
@@ -2307,12 +2315,18 @@ function parseChronoDateValue(date: string): number {
 }
 
 function getAllChronoEvents(): ChronoEvent[] {
-  // Un événement personnalisé dont l'id correspond à un événement d'origine
+  // Un document Firestore dont l'id correspond à un événement d'origine
   // remplace son contenu (c'est ainsi qu'on modifie un événement déjà écrit
-  // dans le code) ; sinon, c'est un tout nouvel événement.
-  const overrideIds = new Set(customChronoCache.map(c => c.id));
-  const baseEvents: ChronoEvent[] = CHRONO_EVENTS.filter(ev => !overrideIds.has(ev.id)).map(ev => ({ ...ev }));
-  const custom: ChronoEvent[] = customChronoCache.map(c => ({
+  // dans le code) — sauf s'il est marqué "deleted", auquel cas l'événement
+  // d'origine est retiré de la frise. Un id qui ne correspond à aucun
+  // événement d'origine est un tout nouvel événement.
+  const deletedIds = new Set(customChronoCache.filter(c => c.deleted).map(c => c.id));
+  const overrides = customChronoCache.filter(c => !c.deleted);
+  const overrideIds = new Set(overrides.map(c => c.id));
+  const baseEvents: ChronoEvent[] = CHRONO_EVENTS
+    .filter(ev => !overrideIds.has(ev.id) && !deletedIds.has(ev.id))
+    .map(ev => ({ ...ev }));
+  const custom: ChronoEvent[] = overrides.map(c => ({
     id: c.id, numeral: '', date: c.date, title: c.title, tags: c.tags, body: c.body,
   }));
   const merged = [...baseEvents, ...custom];
@@ -2339,11 +2353,10 @@ function renderChronologie(): string {
   const loggedIn = isLoggedIn();
   const rows = getAllChronoEvents().map((ev, i) => {
     const side = i % 2 === 0 ? 'chrono-left' : 'chrono-right';
-    const isOverridden = customChronoCache.some(c => c.id === ev.id);
     const actions = loggedIn ? `
         <div class="chrono-actions">
           <span class="btn btn-ghost" onclick="editChronoEvent('${ev.id}')">Modifier</span>
-          ${isOverridden ? `<span class="btn btn-ghost" onclick="deleteChronoEvent('${ev.id}')">Supprimer</span>` : ''}
+          <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet événement de la chronologie ?')){ deleteChronoEvent('${ev.id}'); }">Supprimer</span>
         </div>` : '';
     return `
     <div class="chrono-row ${side}">
