@@ -816,7 +816,7 @@ function renderEcriture() {
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="ceBody" rows="6" placeholder="Raconte l'événement…"></textarea>
-        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code>&gt; </code> pour une citation encadrée.</div>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
       </div>
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
@@ -2071,9 +2071,33 @@ function chronoTagHtml(key) {
     return `<button type="button" class="chrono-tag${t.filled ? ' chrono-tag-filled' : ''}" style="--tagclr:${t.color}" onclick="showChronoTagInfo('${key}', event)">${esc(t.label)}<span class="chrono-tag-i">i</span></button>`;
 }
 function chronoBodyHtml(body) {
-    return body.map(p => typeof p === 'string'
-        ? `<p>${esc(p)}</p>`
-        : `<p class="chrono-quote">« ${esc(p.quote)} »</p>`).join('');
+    const out = [];
+    let list = [];
+    const flushList = () => {
+        if (list.length) {
+            out.push(`<ul class="dossier-list-block">${list.map(li => `<li>${applyInlineFormatting(esc(li))}</li>`).join('')}</ul>`);
+            list = [];
+        }
+    };
+    for (const p of body) {
+        if (typeof p !== 'string') {
+            flushList();
+            out.push(`<p class="chrono-quote">« ${applyInlineFormatting(esc(p.quote))} »</p>`);
+            continue;
+        }
+        const line = p.trim();
+        if (line.startsWith('#')) {
+            flushList();
+            out.push(`<h3>${esc(line.replace(/^#+\s*/, ''))}</h3>`);
+        } else if (line.startsWith('- ') || line.startsWith('* ')) {
+            list.push(line.slice(2).trim());
+        } else {
+            flushList();
+            out.push(`<p>${applyInlineFormatting(esc(line))}</p>`);
+        }
+    }
+    flushList();
+    return out.join('');
 }
 function renderChronologie() {
     const legend = Object.keys(CHRONO_TAGS).map(chronoTagHtml).join('');
