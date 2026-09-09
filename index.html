@@ -175,10 +175,6 @@ body{
 .write-image-item img{ width:64px; height:64px; object-fit:cover; border-radius: var(--radius); flex-shrink:0; }
 .write-image-item .write-image-caption{ flex:1; margin:0; }
 .write-image-item .btn{ flex-shrink:0; }
-.write-image-uploading{
-  font-size:12.5px; color: var(--text-dim); font-style:italic;
-  padding:8px; border:1px dashed var(--border); border-radius: var(--radius);
-}
 
 .auth-btn-avatar{ width:16px; height:16px; border-radius:50%; object-fit:cover; margin-right:6px; vertical-align:-3px; }
 
@@ -2890,7 +2886,6 @@ footer.page-foot{
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-storage-compat.js"></script>
 <script>
   var firebaseConfig = {
     apiKey: "AIzaSyBU6WM0eubehyn_928R6SE8LkjaPHKoL8M",
@@ -2903,7 +2898,6 @@ footer.page-foot{
   try {
     firebase.initializeApp(firebaseConfig);
     window.db = firebase.firestore();
-    window.storage = firebase.storage();
   } catch(e) {
     console.error('Firebase indisponible :', e);
   }

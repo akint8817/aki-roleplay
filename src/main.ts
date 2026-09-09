@@ -697,14 +697,27 @@ let customEntriesCache: CustomEntry[] = [];
 let customPagesCache: CustomNavPage[] = [];
 let customChronoCache: CustomChronoEvent[] = [];
 let wfImagesDraft: EntryImage[] = [];
-let wfUploadingCount = 0;
 
 function getFirestoreDb(): any {
   return (window as any).db || null;
 }
 
-function getFirebaseStorage(): any {
-  return (window as any).storage || null;
+// Les images restent stockées directement dans Firestore (en base64), qui
+// plafonne un document à 1 Mo tout compris. On garde donc un budget total
+// (toutes les images d'une même fiche additionnées) sous cette limite,
+// plutôt qu'un plafond fixe par image qui pourrait la dépasser si on en
+// ajoute plusieurs.
+const IMAGE_BUDGET_BYTES = 700 * 1024;
+
+function estimateImageBytes(dataUrl: string): number {
+  const commaIdx = dataUrl.indexOf(',');
+  const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx+1) : dataUrl;
+  const padding = b64.endsWith('==') ? 2 : (b64.endsWith('=') ? 1 : 0);
+  return Math.max(0, Math.floor((b64.length * 3) / 4) - padding);
+}
+
+function totalWfImagesBytes(): number {
+  return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
 // Quand les données Firestore changent (par ex. un autre utilisateur publie une
@@ -905,7 +918,7 @@ function renderEcriture(): string {
         <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras.</div>
       </div>
       <div class="write-row">
-        <label>Images (optionnel, 10 Mo max chacune)</label>
+        <label>Images (optionnel, 700 Ko au total pour cette fiche)</label>
         <div class="write-images-list" id="wfImagesList">${wfImagesListHtml()}</div>
         <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
       </div>
@@ -964,16 +977,12 @@ function renderEcriture(): string {
 }
 
 function wfImagesListHtml(): string {
-  let html = wfImagesDraft.map((img,i)=>`
+  return wfImagesDraft.map((img,i)=>`
     <div class="write-image-item">
       <img src="${img.url}" alt="">
       <input type="text" class="write-image-caption" placeholder="Description de cette image (optionnel)" value="${escAttr(img.caption||'')}" oninput="updateWfImageCaption(${i}, this.value)">
       <span class="btn btn-ghost" onclick="removeWfImage(${i})">Retirer</span>
     </div>`).join('');
-  for(let i=0;i<wfUploadingCount;i++){
-    html += `<div class="write-image-uploading">⏳ Envoi de l'image en cours…</div>`;
-  }
-  return html;
 }
 
 function refreshWfImagesList(): void {
@@ -984,33 +993,20 @@ function refreshWfImagesList(): void {
 function handleCustomEntryImage(input: HTMLInputElement): void {
   const file = input.files && input.files[0];
   if(!file) return;
-  if(file.size > 10*1024*1024){
-    alert('Image trop lourde (10 Mo maximum).');
+  const remaining = IMAGE_BUDGET_BYTES - totalWfImagesBytes();
+  if(file.size > remaining){
+    const remainingKo = Math.max(0, Math.floor(remaining/1024));
+    alert(`Pas assez de place : il reste environ ${remainingKo} Ko sur les 700 Ko disponibles au total pour cette fiche (toutes les images additionnées). Choisis une image plus légère ou retire-en une.`);
     input.value = '';
     return;
   }
-  const storage = getFirebaseStorage();
-  if(!storage){
-    alert("Le stockage d'images n'est pas disponible pour le moment.");
+  const reader = new FileReader();
+  reader.onload = () => {
+    wfImagesDraft.push({ url: reader.result as string, caption: '' });
     input.value = '';
-    return;
-  }
-  input.value = '';
-  wfUploadingCount++;
-  refreshWfImagesList();
-  const path = 'entry-images/' + Date.now() + '-' + Math.random().toString(36).slice(2) + '-' + file.name;
-  storage.ref().child(path).put(file)
-    .then((snapshot: any) => snapshot.ref.getDownloadURL())
-    .then((url: string) => {
-      wfImagesDraft.push({ url, caption: '' });
-      wfUploadingCount--;
-      refreshWfImagesList();
-    })
-    .catch((err: any) => {
-      wfUploadingCount--;
-      refreshWfImagesList();
-      alert("Erreur lors de l'envoi de l'image : " + err.message);
-    });
+    refreshWfImagesList();
+  };
+  reader.readAsDataURL(file);
 }
 
 function updateWfImageCaption(i: number, value: string): void {
@@ -1039,10 +1035,6 @@ function submitCustomEntry(): void {
   const editId = editIdEl?.value || '';
   if(!name || !tagline || body.length === 0){
     if(errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
-    return;
-  }
-  if(wfUploadingCount > 0){
-    if(errEl) errEl.textContent = "Attends la fin de l'envoi des images avant de publier.";
     return;
   }
   const db = getFirestoreDb();
@@ -1077,7 +1069,6 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.join('\n\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
   wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
-  wfUploadingCount = 0;
   refreshWfImagesList();
   const btn = document.getElementById('wfSubmitBtn');
   if(btn) btn.textContent = 'Enregistrer les modifications';
@@ -1094,7 +1085,6 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfQuote') as HTMLInputElement).value = '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
   wfImagesDraft = [];
-  wfUploadingCount = 0;
   refreshWfImagesList();
   const fileEl = document.getElementById('wfImageFile') as HTMLInputElement | null;
   if(fileEl) fileEl.value = '';
