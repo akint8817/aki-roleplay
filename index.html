@@ -1914,7 +1914,7 @@ h1,h2,h3,h4{
   background: var(--surface-2); padding:8px 18px;
 }
 .entry-music audio{ display:none; }
-.entry-music-sc-frame{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
+.entry-music-sc-frame{ position:absolute; left:-9999px; top:0; width:300px; height:166px; pointer-events:none; }
 .entry-music-toggle{
   flex:none; width:28px; height:28px; border-radius:50%;
   border:1px solid var(--border); background: var(--surface);
@@ -1935,6 +1935,11 @@ h1,h2,h3,h4{
 .entry-music-vol{ flex:none; display:flex; align-items:center; gap:6px; }
 .entry-music-vol-icon{ font-size:12px; color: var(--text-dim); }
 .entry-music-vol-slider{ width:70px; accent-color: var(--verdigris); }
+.entry-music-fallback{
+  color: var(--verdigris); font-size:12.5px; text-decoration:none;
+  font-family:'IBM Plex Mono', monospace;
+}
+.entry-music-fallback:hover{ color: var(--amber); text-decoration:underline; }
 .article-body{ padding: 26px 30px; display:grid; grid-template-columns: minmax(0,74ch) minmax(260px,460px); gap: 30px; }
 @media (max-width: 700px){ .article-body{ grid-template-columns: 1fr; } }
 .article-body h3{ font-size:15px; margin: 18px 0 8px; color: var(--verdigris); text-transform:uppercase; letter-spacing:0.06em; font-family:'EB Garamond'; font-style:italic; font-weight:600; }
@@ -2995,6 +3000,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=13"></script>
+<script src="dist/main.js?v=14"></script>
 </body>
 </html>

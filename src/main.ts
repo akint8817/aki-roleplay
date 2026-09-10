@@ -2293,7 +2293,7 @@ function entryMusicHtml(e: Entry): string {
   const playerId = 'em-' + Math.random().toString(36).slice(2,10);
   const isSoundCloud = /soundcloud\.com/i.test(e.music);
   const source = isSoundCloud
-    ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
+    ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
     : `<audio preload="metadata" src="${encodeURI(e.music)}"></audio>`;
   return `<div class="entry-music" id="${playerId}" data-kind="${isSoundCloud ? 'soundcloud' : 'direct'}">
     <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
@@ -2324,15 +2324,28 @@ function initEntryMusicPlayers(): void {
   document.querySelectorAll<HTMLElement>('.entry-music[data-kind="soundcloud"]').forEach(wrap => initEntryMusicSC(wrap.id));
 }
 
-function initEntryMusicSC(playerId: string): void {
+function entryMusicScFallback(wrap: HTMLElement, iframeSrc: string): void {
+  const match = iframeSrc.match(/url=([^&]+)/);
+  const trackUrl = match ? decodeURIComponent(match[1]) : iframeSrc;
+  wrap.innerHTML = `<a class="entry-music-fallback" href="${esc(trackUrl)}" target="_blank" rel="noopener">🎵 Écouter sur SoundCloud ↗</a>`;
+}
+
+function initEntryMusicSC(playerId: string, attempt: number = 0): void {
   const wrap = document.getElementById(playerId);
   if(!wrap || scWidgets[playerId]) return;
   const iframe = wrap.querySelector('iframe') as HTMLIFrameElement | null;
   const SC = (window as any).SC;
   if(!iframe || !SC || !SC.Widget){
     // L'API SoundCloud se charge en arrière-plan (script externe) : on
-    // réessaie un peu plus tard si elle n'est pas encore prête.
-    setTimeout(() => initEntryMusicSC(playerId), 200);
+    // réessaie un peu plus tard si elle n'est pas encore prête. Si elle
+    // n'arrive jamais (ex : bloqueur de pub qui bloque leur script), on
+    // bascule après quelques secondes sur un simple lien externe plutôt
+    // que de laisser un bouton qui ne fait jamais rien.
+    if(attempt >= 25){
+      if(iframe) entryMusicScFallback(wrap, iframe.src);
+      return;
+    }
+    setTimeout(() => initEntryMusicSC(playerId, attempt + 1), 200);
     return;
   }
   const widget = SC.Widget(iframe);
