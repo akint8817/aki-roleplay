@@ -925,8 +925,8 @@ function renderEcriture() {
       </div>
       <div class="write-row">
         <label>Musique (optionnel)</label>
-        <input id="wfMusic" type="url" placeholder="Lien vers un fichier audio (Discord, Dropbox, SoundCloud…)">
-        <div class="write-hint">Crée une barre de lecture sur la fiche. Le lien doit pointer directement vers le fichier audio (pas vers une page) — par exemple un lien de fichier joint Discord.</div>
+        <input id="wfMusic" type="url" placeholder="Lien vers un fichier audio, ou lien SoundCloud">
+        <div class="write-hint">Crée une barre de lecture sur la fiche. Un lien SoundCloud (page du morceau) fonctionne directement. Pour un autre lien, il doit pointer vers le fichier audio lui-même (pas vers une page) — par exemple un lien de fichier joint Discord.</div>
       </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
@@ -1993,10 +1993,74 @@ function entrySpecialiteHtml(e) {
 }
 function entryMusicHtml(e) {
     if (!e.music) return '';
-    return `<div class="entry-music">
-    <span class="entry-music-label">🎵 Musique</span>
-    <audio controls preload="none" src="${encodeURI(e.music)}"></audio>
+    if (/soundcloud\.com/i.test(e.music)) {
+        const embedSrc = `https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&color=%238a95a6&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
+        return `<div class="entry-music">
+      <span class="entry-music-label">◈ Bande-son</span>
+      <iframe class="entry-music-embed" scrolling="no" frameborder="no" allow="autoplay" src="${embedSrc}"></iframe>
+    </div>`;
+    }
+    const playerId = 'em-' + Math.random().toString(36).slice(2, 10);
+    return `<div class="entry-music" id="${playerId}">
+    <span class="entry-music-label">◈ Bande-son</span>
+    <div class="entry-music-player">
+      <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
+      <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
+        <div class="entry-music-progress"></div>
+      </div>
+      <span class="entry-music-time">0:00</span>
+    </div>
+    <audio preload="metadata" src="${encodeURI(e.music)}"></audio>
   </div>`;
+}
+function formatAudioTime(sec) {
+    if (!isFinite(sec) || sec < 0) sec = 0;
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return m + ':' + (s < 10 ? '0' : '') + s;
+}
+function updateEntryMusicProgress(playerId) {
+    const wrap = document.getElementById(playerId);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    const progress = wrap.querySelector('.entry-music-progress');
+    const timeEl = wrap.querySelector('.entry-music-time');
+    if (!audio || !progress || !timeEl) return;
+    const pct = audio.duration ? (audio.currentTime / audio.duration) * 100 : 0;
+    progress.style.width = pct + '%';
+    timeEl.textContent = formatAudioTime(audio.currentTime) + (audio.duration ? ' / ' + formatAudioTime(audio.duration) : '');
+}
+function toggleEntryMusic(playerId) {
+    const wrap = document.getElementById(playerId);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    const btn = wrap.querySelector('.entry-music-toggle');
+    if (!audio || !btn) return;
+    if (!audio.dataset.wired) {
+        audio.dataset.wired = '1';
+        audio.addEventListener('timeupdate', () => updateEntryMusicProgress(playerId));
+        audio.addEventListener('loadedmetadata', () => updateEntryMusicProgress(playerId));
+        audio.addEventListener('ended', () => { btn.textContent = '▶'; });
+    }
+    if (audio.paused) {
+        document.querySelectorAll('.entry-music audio').forEach(a => { if (a !== audio) a.pause(); });
+        audio.play();
+        btn.textContent = '⏸';
+    } else {
+        audio.pause();
+        btn.textContent = '▶';
+    }
+}
+function seekEntryMusic(evt, playerId) {
+    const wrap = document.getElementById(playerId);
+    if (!wrap) return;
+    const audio = wrap.querySelector('audio');
+    const track = evt.currentTarget;
+    if (!audio || !audio.duration) return;
+    const rect = track.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+    audio.currentTime = ratio * audio.duration;
+    updateEntryMusicProgress(playerId);
 }
 function entryOwnerActionsHtml(e) {
     if (e.id.startsWith('custom-')) {
