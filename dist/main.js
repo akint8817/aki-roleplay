@@ -3,7 +3,7 @@
    Remplace ce bloc par le contenu réel de ton jeu.
    Chaque entrée: id, catégorie, nom, court résumé, image-couleur (accent), infos, description.
 */
-const ENTRIES = [
+const ENTRIES_BASE = [
     { id: 'alice-alfreya', cat: 'personnages', name: 'Alice Alfreya', tagline: 'Hybride de rang A', rarity: 'rare', faction: 'halcyon', squad: 'oracle',
         image: 'assets/characters/alice-alfreya.jpg',
         quote: "« Ça ? Ce n'était rien, je suis capable de faire beaucoup mieux vous savez. »",
@@ -120,6 +120,7 @@ const ENTRIES = [
         body: ["Un classique pour les approches furtives. Se combine bien avec les compétences de type Assassin.",
             "Le temps de recharge après usage est de 45 secondes."] },
 ];
+const ENTRIES = ENTRIES_BASE.map(e => ({ ...e }));
 /* ---------------- ARCHIVES HALCYON — ARTEFACTS OXIRIENS (dossiers secrets des armes) ---------------- */
 const WEAPONS = [
     { id: 'jugement-equinoxe', dossier: '001', name: "Jugement de l'Équinoxe", danger: 'Extrême', status: 'PERDU',
@@ -707,17 +708,28 @@ function initFirestoreSync() {
     if (!db) return;
     db.collection('entries').onSnapshot((snap) => {
         const list = [];
+        const overrides = {};
+        const deletedOverrideIds = new Set();
         snap.forEach((doc) => {
             const data = doc.data();
-            const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
             const specialite = Array.isArray(data.specialite)
                 ? data.specialite
                 : (data.specialite ? parseWriteBody(data.specialite) : undefined);
+            const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
+            if (isOverride) {
+                if (data.deleted) { deletedOverrideIds.add(doc.id); return; }
+                overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined };
+                return;
+            }
+            const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
             list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined });
         });
-        for (let i = ENTRIES.length - 1; i >= 0; i--) {
-            if (ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
-        }
+        ENTRIES.length = 0;
+        ENTRIES_BASE.forEach(base => {
+            if (deletedOverrideIds.has(base.id)) return;
+            const ov = overrides[base.id];
+            ENTRIES.push(ov ? mergeEntryOverride(base, ov) : { ...base });
+        });
         list.forEach(c => ENTRIES.push(customEntryToEntry(c)));
         customEntriesCache = list;
         const draft = captureDraftFormState();
@@ -764,6 +776,28 @@ function customEntryToEntry(c) {
         factionLabel: c.faction,
         image: c.images && c.images[0] ? c.images[0].url : undefined,
         images: c.images,
+    };
+}
+function mergeEntryOverride(base, ov) {
+    const images = ov.images && ov.images.length ? ov.images : base.images;
+    const info = { ...base.info };
+    if (ov.capacite) {
+        delete info['Capacité'];
+        delete info['Spécificité'];
+        info['Spécificité'] = ov.capacite;
+    }
+    return {
+        ...base,
+        cat: ov.cat || base.cat,
+        name: ov.name || base.name,
+        tagline: ov.tagline || base.tagline,
+        quote: ov.quote !== undefined ? (ov.quote || undefined) : base.quote,
+        body: ov.body && ov.body.length ? ov.body : base.body,
+        images,
+        image: images && images[0] ? images[0].url : base.image,
+        specialite: ov.specialite && ov.specialite.length ? ov.specialite : base.specialite,
+        info,
+        factionLabel: ov.faction || base.factionLabel,
     };
 }
 function updateAuthUI() {
@@ -1012,7 +1046,10 @@ function submitCustomEntry() {
     cancelEditCustomEntry();
 }
 function editCustomEntry(id) {
-    const entry = customEntriesCache.find(c => c.id === id);
+    const isHardcoded = ENTRIES_BASE.some(e => e.id === id);
+    const rawCustom = isHardcoded ? undefined : customEntriesCache.find(c => c.id === id);
+    if (!isHardcoded && !rawCustom) return;
+    const entry = isHardcoded ? findEntry(id) : customEntryToEntry(rawCustom);
     if (!entry) return;
     if (!document.getElementById('wfCat')) {
         navigate('ecriture');
@@ -1023,9 +1060,9 @@ function editCustomEntry(id) {
     document.getElementById('wfName').value = entry.name;
     document.getElementById('wfTagline').value = entry.tagline;
     document.getElementById('wfQuote').value = entry.quote || '';
-    document.getElementById('wfFaction').value = entry.faction || '';
+    document.getElementById('wfFaction').value = entry.factionLabel || '';
     document.getElementById('wfSpecialite').value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
-    document.getElementById('wfCapacite').value = entry.capacite || '';
+    document.getElementById('wfCapacite').value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
     document.getElementById('wfBody').value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfEditId').value = id;
     wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1060,7 +1097,12 @@ function cancelEditCustomEntry() {
 function deleteCustomEntry(id) {
     const db = getFirestoreDb();
     if (!db) return;
-    db.collection('entries').doc(id).delete();
+    const isHardcoded = ENTRIES_BASE.some(e => e.id === id);
+    if (isHardcoded) {
+        db.collection('entries').doc(id).set({ deleted: true });
+    } else {
+        db.collection('entries').doc(id).delete();
+    }
 }
 
 function submitChronoEvent() {
@@ -1898,7 +1940,6 @@ function renderEntry(id) {
         </div>
       </div>
     </div>
-    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
 }
 function entryGalleryHtml(e) {
@@ -1915,13 +1956,19 @@ function entrySpecialiteHtml(e) {
     return `<div class="entry-specialite"><div class="entry-side-heading">Capacité</div>${renderRichBody(e.specialite)}</div>`;
 }
 function entryOwnerActionsHtml(e) {
-    if (!e.id.startsWith('custom-')) return '';
-    const rawId = e.id.slice('custom-'.length);
-    const custom = customEntriesCache.find(c => c.id === rawId);
-    if (!custom || custom.author !== getCurrentUser()) return '';
+    if (e.id.startsWith('custom-')) {
+        const rawId = e.id.slice('custom-'.length);
+        const custom = customEntriesCache.find(c => c.id === rawId);
+        if (!custom || custom.author !== getCurrentUser()) return '';
+        return `<div class="entry-owner-actions">
+      <span class="btn btn-ghost" onclick="editCustomEntry('${rawId}')">Modifier</span>
+      <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${rawId}'); navigate('cat-${e.cat}'); }">Supprimer</span>
+    </div>`;
+    }
+    if (!isLoggedIn()) return '';
     return `<div class="entry-owner-actions">
-    <span class="btn btn-ghost" onclick="editCustomEntry('${rawId}')">Modifier</span>
-    <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${rawId}'); navigate('cat-${e.cat}'); }">Supprimer</span>
+    <span class="btn btn-ghost" onclick="editCustomEntry('${e.id}')">Modifier</span>
+    <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${e.id}'); navigate('cat-${e.cat}'); }">Supprimer</span>
   </div>`;
 }
 function opParticlesHtml() {
@@ -1999,7 +2046,6 @@ function renderPersonnageEntry(e) {
         </div>
       </div>
     </div>
-    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
 }
 function navigatePersonnageRail(dir, currentId) {

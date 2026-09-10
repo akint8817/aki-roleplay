@@ -89,7 +89,7 @@ interface MapZone {
   pois?: MapPoi[];
 }
 
-const ENTRIES: Entry[] = [
+const ENTRIES_BASE: Entry[] = [
   {id:'alice-alfreya', cat:'personnages', name:'Alice Alfreya', tagline:'Hybride de rang A', rarity:'rare', faction:'halcyon', squad:'oracle',
     image:'assets/characters/alice-alfreya.jpg',
     quote:"« Ça ? Ce n'était rien, je suis capable de faire beaucoup mieux vous savez. »",
@@ -206,6 +206,13 @@ const ENTRIES: Entry[] = [
     body:["Un classique pour les approches furtives. Se combine bien avec les compétences de type Assassin.",
           "Le temps de recharge après usage est de 45 secondes."]},
 ];
+
+// Liste vivante des fiches, reconstruite à chaque synchronisation Firestore
+// (voir initFirestoreSync) : ENTRIES_BASE + les fiches écrites depuis le
+// site (préfixées "custom-"), avec les fiches d'origine remplacées par leur
+// éventuelle version modifiée (voir mergeEntryOverride) ou retirées si
+// supprimées. Tout le reste du fichier lit uniquement ENTRIES.
+const ENTRIES: Entry[] = ENTRIES_BASE.map(e => ({ ...e }));
 
 /* ---------------- ARCHIVES HALCYON — ARTEFACTS OXIRIENS (dossiers secrets des armes) ---------------- */
 const WEAPONS: Weapon[] = [
@@ -899,19 +906,35 @@ function initFirestoreSync(): void {
   if(!db) return;
   db.collection('entries').onSnapshot((snap: any) => {
     const list: CustomEntry[] = [];
+    // Un document dont l'id correspond à une fiche d'origine (ENTRIES_BASE)
+    // modifie cette fiche sur place (voir mergeEntryOverride) — sauf s'il est
+    // marqué "deleted", auquel cas la fiche d'origine disparaît du site pour
+    // tout le monde. Un id qui ne correspond à aucune fiche d'origine est
+    // une toute nouvelle fiche personnalisée (préfixée "custom-").
+    const overrides: Record<string, Partial<CustomEntry>> = {};
+    const deletedOverrideIds = new Set<string>();
     snap.forEach((doc: any) => {
       const data = doc.data();
-      const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
       // Rétrocompatibilité : "spécificité" était autrefois une simple chaîne
       // (un seul champ texte) avant de devenir un tableau de paragraphes.
       const specialite: string[] | undefined = Array.isArray(data.specialite)
         ? data.specialite
         : (data.specialite ? parseWriteBody(data.specialite) : undefined);
+      const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
+      if(isOverride){
+        if(data.deleted){ deletedOverrideIds.add(doc.id); return; }
+        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined };
+        return;
+      }
+      const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
       list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined });
     });
-    for(let i = ENTRIES.length - 1; i >= 0; i--){
-      if(ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
-    }
+    ENTRIES.length = 0;
+    ENTRIES_BASE.forEach(base => {
+      if(deletedOverrideIds.has(base.id)) return;
+      const ov = overrides[base.id];
+      ENTRIES.push(ov ? mergeEntryOverride(base, ov) : { ...base });
+    });
     list.forEach(c => ENTRIES.push(customEntryToEntry(c)));
     customEntriesCache = list;
     const draft = captureDraftFormState();
@@ -960,6 +983,35 @@ function customEntryToEntry(c: CustomEntry): Entry {
     factionLabel: c.faction,
     image: c.images && c.images[0] ? c.images[0].url : undefined,
     images: c.images,
+  };
+}
+
+// Applique la version modifiée (écrite via le même formulaire que les fiches
+// personnalisées) d'une fiche d'origine (voir ENTRIES_BASE) par-dessus son
+// contenu écrit dans le code : seuls les champs couverts par le formulaire
+// changent (nom, titre, citation, texte, images, spécificité/capacité,
+// faction affichée), tout le reste (rareté, escadron, région, info d'origine,
+// histoire du bouton "Histoire"...) reste celui écrit dans le code.
+function mergeEntryOverride(base: Entry, ov: Partial<CustomEntry>): Entry {
+  const images = ov.images && ov.images.length ? ov.images : base.images;
+  const info = { ...base.info };
+  if(ov.capacite){
+    delete info['Capacité'];
+    delete info['Spécificité'];
+    info['Spécificité'] = ov.capacite;
+  }
+  return {
+    ...base,
+    cat: ov.cat || base.cat,
+    name: ov.name || base.name,
+    tagline: ov.tagline || base.tagline,
+    quote: ov.quote !== undefined ? (ov.quote || undefined) : base.quote,
+    body: ov.body && ov.body.length ? ov.body : base.body,
+    images,
+    image: images && images[0] ? images[0].url : base.image,
+    specialite: ov.specialite && ov.specialite.length ? ov.specialite : base.specialite,
+    info,
+    factionLabel: ov.faction || base.factionLabel,
   };
 }
 
@@ -1222,7 +1274,14 @@ function submitCustomEntry(): void {
 }
 
 function editCustomEntry(id: string): void {
-  const entry = customEntriesCache.find(c=>c.id===id);
+  // On modifie soit une fiche déjà personnalisée, soit une fiche d'origine
+  // (écrite dans le code, ex : Alice, Sariah...) — dans ce dernier cas,
+  // l'enregistrement créera une version modifiée qui la remplace, sous le
+  // même id (voir mergeEntryOverride).
+  const isHardcoded = ENTRIES_BASE.some(e => e.id === id);
+  const rawCustom = isHardcoded ? undefined : customEntriesCache.find(c=>c.id===id);
+  if(!isHardcoded && !rawCustom) return;
+  const entry = isHardcoded ? findEntry(id) : customEntryToEntry(rawCustom as CustomEntry);
   if(!entry) return;
   if(!document.getElementById('wfCat')){
     navigate('ecriture');
@@ -1233,9 +1292,9 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfName') as HTMLInputElement).value = entry.name;
   (document.getElementById('wfTagline') as HTMLInputElement).value = entry.tagline;
   (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
-  (document.getElementById('wfFaction') as HTMLInputElement).value = entry.faction || '';
+  (document.getElementById('wfFaction') as HTMLInputElement).value = entry.factionLabel || '';
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
-  (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.capacite || '';
+  (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
   wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1272,7 +1331,14 @@ function cancelEditCustomEntry(): void {
 function deleteCustomEntry(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
-  db.collection('entries').doc(id).delete();
+  const isHardcoded = ENTRIES_BASE.some(e => e.id === id);
+  if(isHardcoded){
+    // On ne peut pas retirer une fiche écrite dans le code : on la marque
+    // "supprimée" pour qu'elle disparaisse du site chez tout le monde.
+    db.collection('entries').doc(id).set({ deleted: true });
+  } else {
+    db.collection('entries').doc(id).delete();
+  }
 }
 
 function submitChronoEvent(): void {
@@ -2153,7 +2219,6 @@ function renderEntry(id: string): string {
         </div>
       </div>
     </div>
-    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
 }
 
@@ -2172,17 +2237,26 @@ function entryGalleryHtml(e: Entry): string {
     </figure>`).join('')}</div>`;
 }
 
-// Permet à l'auteur d'une fiche écrite (personnage, objet, lieu, bestiaire)
-// de la modifier/supprimer directement depuis la page de la fiche, sans avoir
-// à retourner sur l'espace Écriture pour la retrouver dans "Mes pages écrites".
+// Permet de modifier/supprimer une fiche directement depuis sa page, sans
+// avoir à retourner sur l'espace Écriture. Pour une fiche écrite depuis le
+// site, seul son auteur peut le faire (comme "Mes pages écrites"). Pour une
+// fiche d'origine (écrite dans le code, ex : Alice, Sariah...), n'importe
+// quel compte connecté peut la modifier ou la marquer supprimée — comme pour
+// les événements de la chronologie (voir mergeEntryOverride).
 function entryOwnerActionsHtml(e: Entry): string {
-  if(!e.id.startsWith('custom-')) return '';
-  const rawId = e.id.slice('custom-'.length);
-  const custom = customEntriesCache.find(c=>c.id===rawId);
-  if(!custom || custom.author !== getCurrentUser()) return '';
+  if(e.id.startsWith('custom-')){
+    const rawId = e.id.slice('custom-'.length);
+    const custom = customEntriesCache.find(c=>c.id===rawId);
+    if(!custom || custom.author !== getCurrentUser()) return '';
+    return `<div class="entry-owner-actions">
+      <span class="btn btn-ghost" onclick="editCustomEntry('${rawId}')">Modifier</span>
+      <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${rawId}'); navigate('cat-${e.cat}'); }">Supprimer</span>
+    </div>`;
+  }
+  if(!isLoggedIn()) return '';
   return `<div class="entry-owner-actions">
-    <span class="btn btn-ghost" onclick="editCustomEntry('${rawId}')">Modifier</span>
-    <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${rawId}'); navigate('cat-${e.cat}'); }">Supprimer</span>
+    <span class="btn btn-ghost" onclick="editCustomEntry('${e.id}')">Modifier</span>
+    <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette fiche ?')){ deleteCustomEntry('${e.id}'); navigate('cat-${e.cat}'); }">Supprimer</span>
   </div>`;
 }
 
@@ -2267,7 +2341,6 @@ function renderPersonnageEntry(e: Entry): string {
         </div>
       </div>
     </div>
-    ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
 }
 
