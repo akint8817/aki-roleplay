@@ -1907,6 +1907,9 @@ h1,h2,h3,h4{
   max-width: 60ch;
 }
 .entry-owner-actions{ display:flex; gap:8px; margin-top:14px; }
+.entry-music{ display:flex; align-items:center; gap:12px; margin-top:14px; flex-wrap:wrap; }
+.entry-music-label{ font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color: var(--text-dim); font-family:'IBM Plex Mono', monospace; white-space:nowrap; }
+.entry-music audio{ height:32px; max-width:100%; }
 .article-body{ padding: 26px 30px; display:grid; grid-template-columns: minmax(0,74ch) minmax(260px,460px); gap: 30px; }
 @media (max-width: 700px){ .article-body{ grid-template-columns: 1fr; } }
 .article-body h3{ font-size:15px; margin: 18px 0 8px; color: var(--verdigris); text-transform:uppercase; letter-spacing:0.06em; font-family:'EB Garamond'; font-style:italic; font-weight:600; }
@@ -2966,6 +2969,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=10"></script>
+<script src="dist/main.js?v=11"></script>
 </body>
 </html>

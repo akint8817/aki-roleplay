@@ -25,6 +25,7 @@ interface Entry {
   story?: string[];
   specialite?: string[];
   factionLabel?: string;
+  music?: string;
 }
 
 interface EntryImage {
@@ -812,12 +813,22 @@ interface CustomEntry {
   specialite?: string[];
   capacite?: string;
   faction?: string;
+  // Faction réelle choisie dans la liste (voir FACTIONS) — permet à la fiche
+  // d'apparaître automatiquement dans le roster de cette faction, comme les
+  // personnages écrits dans le code. "faction" (au-dessus) reste le nom
+  // affiché en texte libre, utilisé seulement si aucune faction réelle n'est
+  // choisie (option "Autre").
+  factionId?: string;
+  // Lien vers un fichier audio déjà hébergé ailleurs (Discord, Dropbox,
+  // SoundCloud...) — affiché comme une barre de lecture sur la fiche.
+  music?: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
 const AUTH_USERS: Record<string,string> = {
   'aki': 'yw3547',
   'wingless': 'aurora',
+  'alter': 'pyke',
 };
 
 function capitalize(s: string): string {
@@ -868,7 +879,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFaction','wfSpecialite','wfCapacite','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -887,6 +898,7 @@ function restoreDraftFormState(state: Record<string,string>): void {
     const el = document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null;
     if(el) el.value = state[id];
   }
+  if('wfFactionSelect' in state) onWfFactionSelectChange();
   if(state['__ceTags']){
     const tags = state['__ceTags'].split(',');
     document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c=>{ c.checked = tags.includes(c.value); });
@@ -923,11 +935,11 @@ function initFirestoreSync(): void {
       const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
       if(isOverride){
         if(data.deleted){ deletedOverrideIds.add(doc.id); return; }
-        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined };
+        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined };
         return;
       }
       const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined });
     });
     ENTRIES.length = 0;
     ENTRIES_BASE.forEach(base => {
@@ -980,7 +992,9 @@ function customEntryToEntry(c: CustomEntry): Entry {
     id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
     quote: c.quote, summary: c.tagline, info, body: c.body,
     specialite: c.specialite,
+    faction: c.factionId,
     factionLabel: c.faction,
+    music: c.music,
     image: c.images && c.images[0] ? c.images[0].url : undefined,
     images: c.images,
   };
@@ -1011,7 +1025,9 @@ function mergeEntryOverride(base: Entry, ov: Partial<CustomEntry>): Entry {
     image: images && images[0] ? images[0].url : base.image,
     specialite: ov.specialite && ov.specialite.length ? ov.specialite : base.specialite,
     info,
+    faction: ov.factionId || base.faction,
     factionLabel: ov.faction || base.factionLabel,
+    music: ov.music || base.music,
   };
 }
 
@@ -1110,8 +1126,13 @@ function renderEcriture(): string {
       </div>
       <div class="write-row">
         <label>Faction (optionnel)</label>
-        <input id="wfFaction" type="text" placeholder="Ex : Halcyon, Eidolon…">
-        <div class="write-hint">S'affiche en haut de la fiche, à côté de "Faction" (utile surtout pour un personnage).</div>
+        <select id="wfFactionSelect" onchange="onWfFactionSelectChange()">
+          <option value="">— Aucune —</option>
+          ${FACTIONS.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}
+          <option value="__custom">Autre (texte libre)…</option>
+        </select>
+        <input id="wfFaction" type="text" placeholder="Ex : Eidolon…" style="margin-top:8px; display:none;">
+        <div class="write-hint">En choisissant une faction existante, le personnage apparaît automatiquement dans son roster (page Personnages). "Autre" affiche juste un nom libre, sans rattachement.</div>
       </div>
       <div class="write-row">
         <label>Spécificité (optionnel)</label>
@@ -1132,6 +1153,11 @@ function renderEcriture(): string {
         <label>Images (optionnel, 700 Ko au total pour cette fiche)</label>
         <div class="write-images-list" id="wfImagesList">${wfImagesListHtml()}</div>
         <input id="wfImageFile" type="file" accept="image/*" onchange="handleCustomEntryImage(this)">
+      </div>
+      <div class="write-row">
+        <label>Musique (optionnel)</label>
+        <input id="wfMusic" type="url" placeholder="Lien vers un fichier audio (Discord, Dropbox, SoundCloud…)">
+        <div class="write-hint">Crée une barre de lecture sur la fiche. Le lien doit pointer directement vers le fichier audio (pas vers une page) — par exemple un lien de fichier joint Discord.</div>
       </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
@@ -1231,14 +1257,27 @@ function removeWfImage(i: number): void {
   refreshWfImagesList();
 }
 
+// Bascule l'affichage du champ de texte libre "Faction" : seulement visible
+// quand "Autre" est choisi dans la liste des factions réelles.
+function onWfFactionSelectChange(): void {
+  const select = document.getElementById('wfFactionSelect') as HTMLSelectElement | null;
+  const input = document.getElementById('wfFaction') as HTMLInputElement | null;
+  if(!select || !input) return;
+  const isCustom = select.value === '__custom';
+  input.style.display = isCustom ? '' : 'none';
+  if(!isCustom) input.value = '';
+}
+
 function submitCustomEntry(): void {
   const catEl = document.getElementById('wfCat') as HTMLSelectElement | null;
   const nameEl = document.getElementById('wfName') as HTMLInputElement | null;
   const taglineEl = document.getElementById('wfTagline') as HTMLInputElement | null;
   const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
+  const factionSelectEl = document.getElementById('wfFactionSelect') as HTMLSelectElement | null;
   const factionEl = document.getElementById('wfFaction') as HTMLInputElement | null;
   const specialiteEl = document.getElementById('wfSpecialite') as HTMLTextAreaElement | null;
   const capaciteEl = document.getElementById('wfCapacite') as HTMLInputElement | null;
+  const musicEl = document.getElementById('wfMusic') as HTMLInputElement | null;
   const bodyEl = document.getElementById('wfBody') as HTMLTextAreaElement | null;
   const editIdEl = document.getElementById('wfEditId') as HTMLInputElement | null;
   const errEl = document.getElementById('wfError');
@@ -1246,9 +1285,12 @@ function submitCustomEntry(): void {
   const name = (nameEl?.value || '').trim();
   const tagline = (taglineEl?.value || '').trim();
   const quote = (quoteEl?.value || '').trim();
-  const faction = (factionEl?.value || '').trim();
+  const factionSelect = factionSelectEl?.value || '';
+  const factionId = factionSelect && factionSelect !== '__custom' ? factionSelect : '';
+  const faction = factionSelect === '__custom' ? (factionEl?.value || '').trim() : '';
   const specialite = parseWriteBody(specialiteEl?.value || '');
   const capacite = (capaciteEl?.value || '').trim();
+  const music = (musicEl?.value || '').trim();
   const body = parseWriteBody(bodyEl?.value || '');
   const images = wfImagesDraft.slice();
   const editId = editIdEl?.value || '';
@@ -1262,12 +1304,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, faction: faction || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images,
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, body, images,
       author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, faction: faction || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, body, images, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
   cancelEditCustomEntry();
@@ -1292,9 +1334,12 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfName') as HTMLInputElement).value = entry.name;
   (document.getElementById('wfTagline') as HTMLInputElement).value = entry.tagline;
   (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
+  (document.getElementById('wfFactionSelect') as HTMLSelectElement).value = entry.faction || (entry.factionLabel ? '__custom' : '');
   (document.getElementById('wfFaction') as HTMLInputElement).value = entry.factionLabel || '';
+  onWfFactionSelectChange();
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
+  (document.getElementById('wfMusic') as HTMLInputElement).value = entry.music || '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
   wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1312,9 +1357,12 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfName') as HTMLInputElement).value = '';
   (document.getElementById('wfTagline') as HTMLInputElement).value = '';
   (document.getElementById('wfQuote') as HTMLInputElement).value = '';
+  (document.getElementById('wfFactionSelect') as HTMLSelectElement).value = '';
   (document.getElementById('wfFaction') as HTMLInputElement).value = '';
+  onWfFactionSelectChange();
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = '';
   (document.getElementById('wfCapacite') as HTMLInputElement).value = '';
+  (document.getElementById('wfMusic') as HTMLInputElement).value = '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
   wfImagesDraft = [];
   refreshWfImagesList();
@@ -2202,6 +2250,7 @@ function renderEntry(id: string): string {
         <h1>${esc(e.name)}</h1>
         <p style="color:var(--text-dim); font-size:13.5px; margin-top:4px;">${esc(e.tagline)}</p>
         ${e.quote ? `<p class="entry-quote">${esc(e.quote)}</p>` : ''}
+        ${entryMusicHtml(e)}
         ${entryOwnerActionsHtml(e)}
       </div>
       <div class="article-body">
@@ -2225,6 +2274,14 @@ function renderEntry(id: string): string {
 function entrySpecialiteHtml(e: Entry): string {
   if(!e.specialite || !e.specialite.length) return '';
   return `<div class="entry-specialite"><div class="entry-side-heading">Capacité</div>${renderRichBody(e.specialite)}</div>`;
+}
+
+function entryMusicHtml(e: Entry): string {
+  if(!e.music) return '';
+  return `<div class="entry-music">
+    <span class="entry-music-label">🎵 Musique</span>
+    <audio controls preload="none" src="${encodeURI(e.music)}"></audio>
+  </div>`;
 }
 
 function entryGalleryHtml(e: Entry): string {
@@ -2326,6 +2383,7 @@ function renderPersonnageEntry(e: Entry): string {
           ${capaciteFact ? `<div class="op-fact"><span class="op-fact-k">${esc(capaciteFact[0])}</span><span class="op-fact-v">${esc(capaciteFact[1])}</span></div>` : ''}
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
+        ${entryMusicHtml(e)}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
         ${entryOwnerActionsHtml(e)}
         <div class="article-body op-article-body">
