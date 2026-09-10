@@ -2299,7 +2299,7 @@ function entryMusicHtml(e: Entry): string {
   const isSoundCloud = /soundcloud\.com/i.test(e.music);
   const source = isSoundCloud
     ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
-    : `<audio preload="metadata" src="${encodeURI(e.music)}"></audio>`;
+    : `<audio preload="metadata" loop src="${encodeURI(e.music)}"></audio>`;
   return `<div class="entry-music" id="${playerId}" data-kind="${isSoundCloud ? 'soundcloud' : 'direct'}">
     <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
     <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
@@ -2374,7 +2374,12 @@ function initEntryMusicSC(playerId: string, attempt: number = 0): void {
     if(btn) btn.textContent = '▶';
   };
   widget.bind(SC.Widget.Events.PAUSE, markPaused);
-  widget.bind(SC.Widget.Events.FINISH, markPaused);
+  // Tant que l'utilisateur n'a pas mis pause lui-même, la musique reboucle
+  // au lieu de s'arrêter à la fin.
+  widget.bind(SC.Widget.Events.FINISH, () => {
+    widget.seekTo(0);
+    widget.play();
+  });
   widget.bind(SC.Widget.Events.PLAY_PROGRESS, (data: any) => {
     const progress = wrap.querySelector('.entry-music-progress') as HTMLElement | null;
     const timeEl = wrap.querySelector('.entry-music-time');
@@ -2395,6 +2400,23 @@ function updateEntryMusicProgress(playerId: string): void {
   timeEl.textContent = formatAudioTime(audio.currentTime) + (audio.duration ? ' / ' + formatAudioTime(audio.duration) : '');
 }
 
+// Coupe toute autre bande-son en cours ailleurs sur la page avant d'en
+// lancer une nouvelle. Un widget SoundCloud dont l'iframe a été retiré du
+// DOM (fiche quittée depuis) peut lever une erreur au lieu d'ignorer
+// silencieusement l'appel — sans le try/catch, cette erreur remontait et
+// empêchait la lecture demandée de démarrer, ce qui bloquait TOUTES les
+// bandes-son dès qu'une seule avait déjà été lancée une fois.
+function pauseAllEntryMusicExcept(exceptPlayerId: string): void {
+  Object.keys(scWidgets).forEach(id => {
+    if(id === exceptPlayerId) return;
+    if(!document.getElementById(id)){ delete scWidgets[id]; return; }
+    try { scWidgets[id].pause(); } catch(err) { delete scWidgets[id]; }
+  });
+  document.querySelectorAll<HTMLAudioElement>('.entry-music audio').forEach(a => {
+    if(a.closest('.entry-music')?.id !== exceptPlayerId) a.pause();
+  });
+}
+
 function toggleEntryMusic(playerId: string): void {
   const wrap = document.getElementById(playerId);
   if(!wrap) return;
@@ -2406,8 +2428,7 @@ function toggleEntryMusic(playerId: string): void {
     if(wrap.dataset.playing === '1'){
       widget.pause();
     } else {
-      Object.entries(scWidgets).forEach(([id, w]: [string, any]) => { if(id !== playerId) w.pause(); });
-      document.querySelectorAll<HTMLAudioElement>('.entry-music audio').forEach(a => a.pause());
+      pauseAllEntryMusicExcept(playerId);
       widget.play();
     }
     return;
@@ -2421,9 +2442,7 @@ function toggleEntryMusic(playerId: string): void {
     audio.addEventListener('ended', () => { btn.textContent = '▶'; });
   }
   if(audio.paused){
-    // Coupe toute autre bande-son déjà en lecture ailleurs sur la page.
-    document.querySelectorAll<HTMLAudioElement>('.entry-music audio').forEach(a => { if(a !== audio) a.pause(); });
-    Object.values(scWidgets).forEach((w: any) => w.pause());
+    pauseAllEntryMusicExcept(playerId);
     audio.play();
     btn.textContent = '⏸';
   } else {
