@@ -1907,17 +1907,14 @@ h1,h2,h3,h4{
   max-width: 60ch;
 }
 .entry-owner-actions{ display:flex; gap:8px; margin-top:14px; }
-.entry-music{ margin-top:14px; max-width:420px; }
-.entry-music-label{
-  display:block; font-size:11px; text-transform:uppercase; letter-spacing:0.08em; color: var(--text-dim);
-  font-family:'IBM Plex Mono', monospace; margin-bottom:8px;
+.entry-music{
+  position:relative; display:flex; align-items:center; gap:14px;
+  margin-top:14px; width:100%;
+  border:1px solid var(--border); border-radius:999px;
+  background: var(--surface-2); padding:8px 18px;
 }
 .entry-music audio{ display:none; }
-.entry-music-player{
-  display:flex; align-items:center; gap:12px;
-  border:1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface-2); padding:9px 14px;
-}
+.entry-music-sc-frame{ position:absolute; width:1px; height:1px; opacity:0; pointer-events:none; }
 .entry-music-toggle{
   flex:none; width:28px; height:28px; border-radius:50%;
   border:1px solid var(--border); background: var(--surface);
@@ -1927,11 +1924,17 @@ h1,h2,h3,h4{
 }
 .entry-music-toggle:hover{ border-color: var(--verdigris); color: var(--amber); }
 .entry-music-track{
-  flex:1; height:4px; background: var(--border); border-radius:2px; cursor:pointer; position:relative;
+  flex:1; height:6px; cursor:pointer; position:relative;
+  background-image: repeating-linear-gradient(to right, var(--border) 0 3px, transparent 3px 6px);
 }
-.entry-music-progress{ position:absolute; left:0; top:0; height:100%; width:0%; background: var(--verdigris); border-radius:2px; }
+.entry-music-progress{
+  position:absolute; left:0; top:0; height:100%; width:0%; overflow:hidden;
+  background-image: repeating-linear-gradient(to right, var(--verdigris) 0 3px, transparent 3px 6px);
+}
 .entry-music-time{ flex:none; font-size:11px; font-family:'IBM Plex Mono', monospace; color: var(--text-dim); white-space:nowrap; }
-.entry-music-embed{ width:100%; max-width:480px; height:120px; border-radius: var(--radius); border:1px solid var(--border); display:block; }
+.entry-music-vol{ flex:none; display:flex; align-items:center; gap:6px; }
+.entry-music-vol-icon{ font-size:12px; color: var(--text-dim); }
+.entry-music-vol-slider{ width:70px; accent-color: var(--verdigris); }
 .article-body{ padding: 26px 30px; display:grid; grid-template-columns: minmax(0,74ch) minmax(260px,460px); gap: 30px; }
 @media (max-width: 700px){ .article-body{ grid-template-columns: 1fr; } }
 .article-body h3{ font-size:15px; margin: 18px 0 8px; color: var(--verdigris); text-transform:uppercase; letter-spacing:0.06em; font-family:'EB Garamond'; font-style:italic; font-weight:600; }
@@ -2975,6 +2978,7 @@ footer.page-foot{
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
+<script src="https://w.soundcloud.com/player/api.js"></script>
 <script>
   var firebaseConfig = {
     apiKey: "AIzaSyBU6WM0eubehyn_928R6SE8LkjaPHKoL8M",
@@ -2991,6 +2995,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=12"></script>
+<script src="dist/main.js?v=13"></script>
 </body>
 </html>

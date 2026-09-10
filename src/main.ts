@@ -2282,26 +2282,30 @@ function entrySpecialiteHtml(e: Entry): string {
 // vers un fichier (Discord, Dropbox...), on dessine notre propre barre de
 // lecture dans le style du site plutôt que d'utiliser les contrôles natifs
 // du navigateur (moches et hors charte graphique).
+// Barre de lecture minimaliste, dans le style du site, pour la musique d'une
+// fiche. Un lien SoundCloud n'est pas un fichier audio direct : on pilote
+// leur lecteur officiel (Widget JS API) via une iframe cachée pour avoir de
+// vrais événements de lecture/progression sans jamais montrer leur widget
+// visuel par défaut. Un lien direct (Discord, Dropbox...) utilise un simple
+// <audio> caché de la même façon.
 function entryMusicHtml(e: Entry): string {
   if(!e.music) return '';
-  if(/soundcloud\.com/i.test(e.music)){
-    const embedSrc = `https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&color=%238a95a6&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
-    return `<div class="entry-music">
-      <span class="entry-music-label">◈ Bande-son</span>
-      <iframe class="entry-music-embed" scrolling="no" frameborder="no" allow="autoplay" src="${embedSrc}"></iframe>
-    </div>`;
-  }
   const playerId = 'em-' + Math.random().toString(36).slice(2,10);
-  return `<div class="entry-music" id="${playerId}">
-    <span class="entry-music-label">◈ Bande-son</span>
-    <div class="entry-music-player">
-      <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
-      <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
-        <div class="entry-music-progress"></div>
-      </div>
-      <span class="entry-music-time">0:00</span>
+  const isSoundCloud = /soundcloud\.com/i.test(e.music);
+  const source = isSoundCloud
+    ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
+    : `<audio preload="metadata" src="${encodeURI(e.music)}"></audio>`;
+  return `<div class="entry-music" id="${playerId}" data-kind="${isSoundCloud ? 'soundcloud' : 'direct'}">
+    <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
+    <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
+      <div class="entry-music-progress"></div>
     </div>
-    <audio preload="metadata" src="${encodeURI(e.music)}"></audio>
+    <span class="entry-music-time">0:00</span>
+    <div class="entry-music-vol">
+      <span class="entry-music-vol-icon">🔊</span>
+      <input type="range" class="entry-music-vol-slider" min="0" max="100" value="80" oninput="setEntryMusicVolume(this,'${playerId}')">
+    </div>
+    ${source}
   </div>`;
 }
 
@@ -2310,6 +2314,55 @@ function formatAudioTime(sec: number): string {
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return m + ':' + (s < 10 ? '0' : '') + s;
+}
+
+// Après chaque rendu d'une fiche, initialise le pilotage Widget API pour
+// toute barre de musique SoundCloud qu'elle contient (voir render()).
+const scWidgets: Record<string, any> = {};
+
+function initEntryMusicPlayers(): void {
+  document.querySelectorAll<HTMLElement>('.entry-music[data-kind="soundcloud"]').forEach(wrap => initEntryMusicSC(wrap.id));
+}
+
+function initEntryMusicSC(playerId: string): void {
+  const wrap = document.getElementById(playerId);
+  if(!wrap || scWidgets[playerId]) return;
+  const iframe = wrap.querySelector('iframe') as HTMLIFrameElement | null;
+  const SC = (window as any).SC;
+  if(!iframe || !SC || !SC.Widget){
+    // L'API SoundCloud se charge en arrière-plan (script externe) : on
+    // réessaie un peu plus tard si elle n'est pas encore prête.
+    setTimeout(() => initEntryMusicSC(playerId), 200);
+    return;
+  }
+  const widget = SC.Widget(iframe);
+  scWidgets[playerId] = widget;
+  let durationSec = 0;
+  widget.bind(SC.Widget.Events.READY, () => {
+    widget.setVolume(80);
+    widget.getDuration((ms: number) => { durationSec = ms / 1000; });
+  });
+  // On suit l'état lecture/pause via les événements du widget plutôt que par
+  // un aller-retour isPaused() au clic : plus fiable, et c'est le
+  // fonctionnement recommandé par SoundCloud.
+  widget.bind(SC.Widget.Events.PLAY, () => {
+    wrap.dataset.playing = '1';
+    const btn = wrap.querySelector('.entry-music-toggle');
+    if(btn) btn.textContent = '⏸';
+  });
+  const markPaused = () => {
+    wrap.dataset.playing = '0';
+    const btn = wrap.querySelector('.entry-music-toggle');
+    if(btn) btn.textContent = '▶';
+  };
+  widget.bind(SC.Widget.Events.PAUSE, markPaused);
+  widget.bind(SC.Widget.Events.FINISH, markPaused);
+  widget.bind(SC.Widget.Events.PLAY_PROGRESS, (data: any) => {
+    const progress = wrap.querySelector('.entry-music-progress') as HTMLElement | null;
+    const timeEl = wrap.querySelector('.entry-music-time');
+    if(progress) progress.style.width = (data.relativePosition * 100) + '%';
+    if(timeEl) timeEl.textContent = formatAudioTime(data.currentPosition / 1000) + (durationSec ? ' / ' + formatAudioTime(durationSec) : '');
+  });
 }
 
 function updateEntryMusicProgress(playerId: string): void {
@@ -2327,9 +2380,22 @@ function updateEntryMusicProgress(playerId: string): void {
 function toggleEntryMusic(playerId: string): void {
   const wrap = document.getElementById(playerId);
   if(!wrap) return;
-  const audio = wrap.querySelector('audio');
   const btn = wrap.querySelector('.entry-music-toggle');
-  if(!audio || !btn) return;
+  if(!btn) return;
+  if(wrap.dataset.kind === 'soundcloud'){
+    const widget = scWidgets[playerId];
+    if(!widget) return;
+    if(wrap.dataset.playing === '1'){
+      widget.pause();
+    } else {
+      Object.entries(scWidgets).forEach(([id, w]: [string, any]) => { if(id !== playerId) w.pause(); });
+      document.querySelectorAll<HTMLAudioElement>('.entry-music audio').forEach(a => a.pause());
+      widget.play();
+    }
+    return;
+  }
+  const audio = wrap.querySelector('audio');
+  if(!audio) return;
   if(!audio.dataset.wired){
     audio.dataset.wired = '1';
     audio.addEventListener('timeupdate', () => updateEntryMusicProgress(playerId));
@@ -2339,6 +2405,7 @@ function toggleEntryMusic(playerId: string): void {
   if(audio.paused){
     // Coupe toute autre bande-son déjà en lecture ailleurs sur la page.
     document.querySelectorAll<HTMLAudioElement>('.entry-music audio').forEach(a => { if(a !== audio) a.pause(); });
+    Object.values(scWidgets).forEach((w: any) => w.pause());
     audio.play();
     btn.textContent = '⏸';
   } else {
@@ -2350,13 +2417,32 @@ function toggleEntryMusic(playerId: string): void {
 function seekEntryMusic(evt: MouseEvent, playerId: string): void {
   const wrap = document.getElementById(playerId);
   if(!wrap) return;
-  const audio = wrap.querySelector('audio');
   const track = evt.currentTarget as HTMLElement;
-  if(!audio || !audio.duration) return;
   const rect = track.getBoundingClientRect();
   const ratio = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+  if(wrap.dataset.kind === 'soundcloud'){
+    const widget = scWidgets[playerId];
+    if(!widget) return;
+    widget.getDuration((ms: number) => widget.seekTo(ratio * ms));
+    return;
+  }
+  const audio = wrap.querySelector('audio');
+  if(!audio || !audio.duration) return;
   audio.currentTime = ratio * audio.duration;
   updateEntryMusicProgress(playerId);
+}
+
+function setEntryMusicVolume(input: HTMLInputElement, playerId: string): void {
+  const wrap = document.getElementById(playerId);
+  if(!wrap) return;
+  const pct = Number(input.value);
+  if(wrap.dataset.kind === 'soundcloud'){
+    const widget = scWidgets[playerId];
+    if(widget) widget.setVolume(pct);
+    return;
+  }
+  const audio = wrap.querySelector('audio');
+  if(audio) audio.volume = pct / 100;
 }
 
 function entryGalleryHtml(e: Entry): string {
@@ -4787,6 +4873,7 @@ function render(): void {
   } else if(route.startsWith('entry-')){
     content.innerHTML = renderEntry(route.replace('entry-',''));
     initPersonnageEntryRail();
+    initEntryMusicPlayers();
   } else {
     content.innerHTML = renderNotFound();
   }

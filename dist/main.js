@@ -1993,24 +1993,22 @@ function entrySpecialiteHtml(e) {
 }
 function entryMusicHtml(e) {
     if (!e.music) return '';
-    if (/soundcloud\.com/i.test(e.music)) {
-        const embedSrc = `https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&color=%238a95a6&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false&visual=false`;
-        return `<div class="entry-music">
-      <span class="entry-music-label">◈ Bande-son</span>
-      <iframe class="entry-music-embed" scrolling="no" frameborder="no" allow="autoplay" src="${embedSrc}"></iframe>
-    </div>`;
-    }
     const playerId = 'em-' + Math.random().toString(36).slice(2, 10);
-    return `<div class="entry-music" id="${playerId}">
-    <span class="entry-music-label">◈ Bande-son</span>
-    <div class="entry-music-player">
-      <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
-      <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
-        <div class="entry-music-progress"></div>
-      </div>
-      <span class="entry-music-time">0:00</span>
+    const isSoundCloud = /soundcloud\.com/i.test(e.music);
+    const source = isSoundCloud
+        ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
+        : `<audio preload="metadata" src="${encodeURI(e.music)}"></audio>`;
+    return `<div class="entry-music" id="${playerId}" data-kind="${isSoundCloud ? 'soundcloud' : 'direct'}">
+    <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
+    <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
+      <div class="entry-music-progress"></div>
     </div>
-    <audio preload="metadata" src="${encodeURI(e.music)}"></audio>
+    <span class="entry-music-time">0:00</span>
+    <div class="entry-music-vol">
+      <span class="entry-music-vol-icon">🔊</span>
+      <input type="range" class="entry-music-vol-slider" min="0" max="100" value="80" oninput="setEntryMusicVolume(this,'${playerId}')">
+    </div>
+    ${source}
   </div>`;
 }
 function formatAudioTime(sec) {
@@ -2018,6 +2016,45 @@ function formatAudioTime(sec) {
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return m + ':' + (s < 10 ? '0' : '') + s;
+}
+const scWidgets = {};
+function initEntryMusicPlayers() {
+    document.querySelectorAll('.entry-music[data-kind="soundcloud"]').forEach(wrap => initEntryMusicSC(wrap.id));
+}
+function initEntryMusicSC(playerId) {
+    const wrap = document.getElementById(playerId);
+    if (!wrap || scWidgets[playerId]) return;
+    const iframe = wrap.querySelector('iframe');
+    const SC = window.SC;
+    if (!iframe || !SC || !SC.Widget) {
+        setTimeout(() => initEntryMusicSC(playerId), 200);
+        return;
+    }
+    const widget = SC.Widget(iframe);
+    scWidgets[playerId] = widget;
+    let durationSec = 0;
+    widget.bind(SC.Widget.Events.READY, () => {
+        widget.setVolume(80);
+        widget.getDuration((ms) => { durationSec = ms / 1000; });
+    });
+    widget.bind(SC.Widget.Events.PLAY, () => {
+        wrap.dataset.playing = '1';
+        const btn = wrap.querySelector('.entry-music-toggle');
+        if (btn) btn.textContent = '⏸';
+    });
+    const markPaused = () => {
+        wrap.dataset.playing = '0';
+        const btn = wrap.querySelector('.entry-music-toggle');
+        if (btn) btn.textContent = '▶';
+    };
+    widget.bind(SC.Widget.Events.PAUSE, markPaused);
+    widget.bind(SC.Widget.Events.FINISH, markPaused);
+    widget.bind(SC.Widget.Events.PLAY_PROGRESS, (data) => {
+        const progress = wrap.querySelector('.entry-music-progress');
+        const timeEl = wrap.querySelector('.entry-music-time');
+        if (progress) progress.style.width = (data.relativePosition * 100) + '%';
+        if (timeEl) timeEl.textContent = formatAudioTime(data.currentPosition / 1000) + (durationSec ? ' / ' + formatAudioTime(durationSec) : '');
+    });
 }
 function updateEntryMusicProgress(playerId) {
     const wrap = document.getElementById(playerId);
@@ -2033,9 +2070,22 @@ function updateEntryMusicProgress(playerId) {
 function toggleEntryMusic(playerId) {
     const wrap = document.getElementById(playerId);
     if (!wrap) return;
-    const audio = wrap.querySelector('audio');
     const btn = wrap.querySelector('.entry-music-toggle');
-    if (!audio || !btn) return;
+    if (!btn) return;
+    if (wrap.dataset.kind === 'soundcloud') {
+        const widget = scWidgets[playerId];
+        if (!widget) return;
+        if (wrap.dataset.playing === '1') {
+            widget.pause();
+        } else {
+            Object.entries(scWidgets).forEach(([id, w]) => { if (id !== playerId) w.pause(); });
+            document.querySelectorAll('.entry-music audio').forEach(a => a.pause());
+            widget.play();
+        }
+        return;
+    }
+    const audio = wrap.querySelector('audio');
+    if (!audio) return;
     if (!audio.dataset.wired) {
         audio.dataset.wired = '1';
         audio.addEventListener('timeupdate', () => updateEntryMusicProgress(playerId));
@@ -2044,6 +2094,7 @@ function toggleEntryMusic(playerId) {
     }
     if (audio.paused) {
         document.querySelectorAll('.entry-music audio').forEach(a => { if (a !== audio) a.pause(); });
+        Object.values(scWidgets).forEach((w) => w.pause());
         audio.play();
         btn.textContent = '⏸';
     } else {
@@ -2054,13 +2105,31 @@ function toggleEntryMusic(playerId) {
 function seekEntryMusic(evt, playerId) {
     const wrap = document.getElementById(playerId);
     if (!wrap) return;
-    const audio = wrap.querySelector('audio');
     const track = evt.currentTarget;
-    if (!audio || !audio.duration) return;
     const rect = track.getBoundingClientRect();
     const ratio = Math.min(1, Math.max(0, (evt.clientX - rect.left) / rect.width));
+    if (wrap.dataset.kind === 'soundcloud') {
+        const widget = scWidgets[playerId];
+        if (!widget) return;
+        widget.getDuration((ms) => widget.seekTo(ratio * ms));
+        return;
+    }
+    const audio = wrap.querySelector('audio');
+    if (!audio || !audio.duration) return;
     audio.currentTime = ratio * audio.duration;
     updateEntryMusicProgress(playerId);
+}
+function setEntryMusicVolume(input, playerId) {
+    const wrap = document.getElementById(playerId);
+    if (!wrap) return;
+    const pct = Number(input.value);
+    if (wrap.dataset.kind === 'soundcloud') {
+        const widget = scWidgets[playerId];
+        if (widget) widget.setVolume(pct);
+        return;
+    }
+    const audio = wrap.querySelector('audio');
+    if (audio) audio.volume = pct / 100;
 }
 function entryOwnerActionsHtml(e) {
     if (e.id.startsWith('custom-')) {
@@ -4461,6 +4530,7 @@ function render() {
     else if (route.startsWith('entry-')) {
         content.innerHTML = renderEntry(route.replace('entry-', ''));
         initPersonnageEntryRail();
+        initEntryMusicPlayers();
     }
     else {
         content.innerHTML = renderNotFound();
