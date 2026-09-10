@@ -1926,17 +1926,19 @@ h1,h2,h3,h4{
 }
 .entry-specialite{
   border: 1px solid var(--border); border-radius: var(--radius);
-  background: var(--surface-2); padding: 14px;
+  background: var(--surface-2); padding: 20px 30px;
+  margin: 0 30px 26px;
 }
+.op-article-body ~ .entry-specialite{ margin: 0 24px 26px; }
 .entry-side-heading{
   font-size: 11px; text-transform:uppercase; letter-spacing:0.08em; color: var(--text-dim);
-  font-family:'IBM Plex Mono', monospace; margin-bottom:8px;
+  font-family:'IBM Plex Mono', monospace; margin-bottom:10px;
 }
-.entry-specialite p{ font-size:12.5px; line-height:1.6; margin-bottom:8px; }
+.entry-specialite p{ font-size:13.5px; line-height:1.8; margin-bottom:10px; max-width:74ch; }
 .entry-specialite p:last-child{ margin-bottom:0; }
-.entry-specialite h3{ font-size:12.5px; margin:10px 0 4px; }
+.entry-specialite h3{ font-size:14px; margin:16px 0 6px; }
 .entry-specialite h3:first-child{ margin-top:0; }
-.entry-specialite .dossier-list-block li{ font-size:12px; }
+.entry-specialite .dossier-list-block{ max-width:74ch; }
 .infobox{
   position: relative;
   border: 1px solid var(--border);
@@ -2967,6 +2969,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=7"></script>
+<script src="dist/main.js?v=8"></script>
 </body>
 </html>

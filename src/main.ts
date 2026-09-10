@@ -24,6 +24,7 @@ interface Entry {
   imagePos?: string;
   story?: string[];
   specialite?: string[];
+  factionLabel?: string;
 }
 
 interface EntryImage {
@@ -797,8 +798,13 @@ interface CustomEntry {
   body: string[];
   author: string;
   images?: EntryImage[];
+  // Note : "specialite" (long texte) s'affiche désormais sous le label
+  // "Capacité", et "capacite" (champ court) s'affiche sous le label
+  // "Spécificité" — les noms de champs sont restés tels quels pour éviter
+  // une migration des fiches déjà écrites, seul l'affichage a été inversé.
   specialite?: string[];
   capacite?: string;
+  faction?: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -855,7 +861,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfSpecialite','wfCapacite','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFaction','wfSpecialite','wfCapacite','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -901,7 +907,7 @@ function initFirestoreSync(): void {
       const specialite: string[] | undefined = Array.isArray(data.specialite)
         ? data.specialite
         : (data.specialite ? parseWriteBody(data.specialite) : undefined);
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined });
     });
     for(let i = ENTRIES.length - 1; i >= 0; i--){
       if(ENTRIES[i].id.startsWith('custom-')) ENTRIES.splice(i, 1);
@@ -945,12 +951,13 @@ function getCustomEntriesRaw(): CustomEntry[] {
 
 function customEntryToEntry(c: CustomEntry): Entry {
   const info: Record<string,string> = {};
-  if(c.capacite) info['Capacité'] = c.capacite;
+  if(c.capacite) info['Spécificité'] = c.capacite;
   info['Auteur'] = capitalize(c.author || 'aki');
   return {
     id: 'custom-' + c.id, cat: c.cat, name: c.name, tagline: c.tagline, rarity: 'common',
     quote: c.quote, summary: c.tagline, info, body: c.body,
     specialite: c.specialite,
+    factionLabel: c.faction,
     image: c.images && c.images[0] ? c.images[0].url : undefined,
     images: c.images,
   };
@@ -1050,14 +1057,19 @@ function renderEcriture(): string {
         <input id="wfQuote" type="text" placeholder="« ... »">
       </div>
       <div class="write-row">
-        <label>Capacité (optionnel)</label>
-        <input id="wfCapacite" type="text" placeholder="Ex : Manipulation de l'Essence…">
-        <div class="write-hint">S'affiche comme info courte à côté de la fiche (et en haut, à côté de la faction, pour un personnage).</div>
+        <label>Faction (optionnel)</label>
+        <input id="wfFaction" type="text" placeholder="Ex : Halcyon, Eidolon…">
+        <div class="write-hint">S'affiche en haut de la fiche, à côté de "Faction" (utile surtout pour un personnage).</div>
       </div>
       <div class="write-row">
         <label>Spécificité (optionnel)</label>
-        <textarea id="wfSpecialite" rows="5" placeholder="Détails, historique, particularités… peut faire plusieurs paragraphes."></textarea>
-        <div class="write-hint">S'affiche dans un encadré à côté de la fiche — peut être aussi long que tu veux (plusieurs paragraphes, gras, listes...).</div>
+        <input id="wfCapacite" type="text" placeholder="Ex : Androïde de dernière génération, Rang A…">
+        <div class="write-hint">S'affiche comme info courte à côté de la fiche (et en haut, à côté de la faction, pour un personnage).</div>
+      </div>
+      <div class="write-row">
+        <label>Capacité (optionnel)</label>
+        <textarea id="wfSpecialite" rows="5" placeholder="Décris la capacité en détail… peut faire plusieurs paragraphes."></textarea>
+        <div class="write-hint">S'affiche dans un grand encadré sous la fiche — peut être aussi long que tu veux (plusieurs paragraphes, gras, listes...).</div>
       </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
@@ -1172,6 +1184,7 @@ function submitCustomEntry(): void {
   const nameEl = document.getElementById('wfName') as HTMLInputElement | null;
   const taglineEl = document.getElementById('wfTagline') as HTMLInputElement | null;
   const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
+  const factionEl = document.getElementById('wfFaction') as HTMLInputElement | null;
   const specialiteEl = document.getElementById('wfSpecialite') as HTMLTextAreaElement | null;
   const capaciteEl = document.getElementById('wfCapacite') as HTMLInputElement | null;
   const bodyEl = document.getElementById('wfBody') as HTMLTextAreaElement | null;
@@ -1181,6 +1194,7 @@ function submitCustomEntry(): void {
   const name = (nameEl?.value || '').trim();
   const tagline = (taglineEl?.value || '').trim();
   const quote = (quoteEl?.value || '').trim();
+  const faction = (factionEl?.value || '').trim();
   const specialite = parseWriteBody(specialiteEl?.value || '');
   const capacite = (capaciteEl?.value || '').trim();
   const body = parseWriteBody(bodyEl?.value || '');
@@ -1196,12 +1210,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images,
+      cat, name, tagline, quote: quote || null, faction: faction || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images,
       author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, faction: faction || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, body, images, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
   cancelEditCustomEntry();
@@ -1219,6 +1233,7 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfName') as HTMLInputElement).value = entry.name;
   (document.getElementById('wfTagline') as HTMLInputElement).value = entry.tagline;
   (document.getElementById('wfQuote') as HTMLInputElement).value = entry.quote || '';
+  (document.getElementById('wfFaction') as HTMLInputElement).value = entry.faction || '';
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.capacite || '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
@@ -1238,6 +1253,7 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfName') as HTMLInputElement).value = '';
   (document.getElementById('wfTagline') as HTMLInputElement).value = '';
   (document.getElementById('wfQuote') as HTMLInputElement).value = '';
+  (document.getElementById('wfFaction') as HTMLInputElement).value = '';
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = '';
   (document.getElementById('wfCapacite') as HTMLInputElement).value = '';
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
@@ -2128,7 +2144,6 @@ function renderEntry(id: string): string {
         </div>
         <div class="entry-side">
           ${entryGalleryHtml(e)}
-          ${entrySpecialiteHtml(e)}
           <div class="infobox">
             ${Object.entries(e.info).map(([k,v])=>`
               <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
@@ -2136,6 +2151,7 @@ function renderEntry(id: string): string {
           </div>
         </div>
       </div>
+      ${entrySpecialiteHtml(e)}
     </div>
     ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
@@ -2143,7 +2159,7 @@ function renderEntry(id: string): string {
 
 function entrySpecialiteHtml(e: Entry): string {
   if(!e.specialite || !e.specialite.length) return '';
-  return `<div class="entry-specialite"><div class="entry-side-heading">Spécificité</div>${renderRichBody(e.specialite)}</div>`;
+  return `<div class="entry-specialite"><div class="entry-side-heading">Capacité</div>${renderRichBody(e.specialite)}</div>`;
 }
 
 function entryGalleryHtml(e: Entry): string {
@@ -2191,7 +2207,8 @@ function renderPersonnageEntry(e: Entry): string {
   const bgWord = e.name.split(/\s+/)[0].toUpperCase();
   const list = ENTRIES.filter(x => x.cat === 'personnages');
   const infoEntries = Object.entries(e.info);
-  const capaciteFact = infoEntries.find(([k]) => k === 'Capacité') || infoEntries[0];
+  const capaciteFact = infoEntries.find(([k]) => k === 'Capacité' || k === 'Spécificité') || infoEntries[0];
+  const factionName = f ? f.name : (e.factionLabel || '—');
 
   const railAvatars = list.map(p=>{
     const active = p.id === e.id;
@@ -2231,7 +2248,7 @@ function renderPersonnageEntry(e: Entry): string {
           <p class="op-tagline">${esc(e.tagline)}</p>
         </div>
         <div class="op-facts-bar">
-          <div class="op-fact"><span class="op-fact-k">Faction</span><span class="op-fact-v">${f ? esc(f.name) : '—'}</span></div>
+          <div class="op-fact"><span class="op-fact-k">Faction</span><span class="op-fact-v">${esc(factionName)}</span></div>
           ${capaciteFact ? `<div class="op-fact"><span class="op-fact-k">${esc(capaciteFact[0])}</span><span class="op-fact-v">${esc(capaciteFact[1])}</span></div>` : ''}
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
@@ -2240,7 +2257,6 @@ function renderPersonnageEntry(e: Entry): string {
         <div class="article-body op-article-body">
           <div>${renderRichBody(e.body)}</div>
           <div class="entry-side">
-            ${entrySpecialiteHtml(e)}
             <div class="infobox">
               ${Object.entries(e.info).map(([k,v])=>`
                 <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
@@ -2248,6 +2264,7 @@ function renderPersonnageEntry(e: Entry): string {
             </div>
           </div>
         </div>
+        ${entrySpecialiteHtml(e)}
       </div>
     </div>
     ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
