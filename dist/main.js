@@ -1894,9 +1894,9 @@ function renderEntry(id) {
               <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
             `).join('')}
           </div>
+          ${entrySpecialiteHtml(e)}
         </div>
       </div>
-      ${entrySpecialiteHtml(e)}
     </div>
     ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
   `;
@@ -1994,9 +1994,9 @@ function renderPersonnageEntry(e) {
                 <div class="ib-row"><span class="ib-k">${esc(k)}</span><span class="ib-v">${esc(v)}</span></div>
               `).join('')}
             </div>
+            ${entrySpecialiteHtml(e)}
           </div>
         </div>
-        ${entrySpecialiteHtml(e)}
       </div>
     </div>
     ${(e.id === 'alice-alfreya' || e.id.startsWith('custom-')) ? '' : '<div class="editnote">✎ Fiche d\'exemple — modifie le texte dans <code>ENTRIES</code> pour y mettre le vrai contenu.</div>'}
