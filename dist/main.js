@@ -1993,7 +1993,7 @@ function entrySpecialiteHtml(e) {
 }
 function entryMusicHtml(e) {
     if (!e.music) return '';
-    const playerId = 'em-' + Math.random().toString(36).slice(2, 10);
+    const playerId = 'em-' + e.id;
     const isSoundCloud = /soundcloud\.com/i.test(e.music);
     const source = isSoundCloud
         ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
@@ -4537,9 +4537,22 @@ function render() {
         content.innerHTML = renderCategory(route.replace('cat-', ''));
     }
     else if (route.startsWith('entry-')) {
-        content.innerHTML = renderEntry(route.replace('entry-', ''));
+        const entryId = route.replace('entry-', '');
+        const stablePlayerId = 'em-' + entryId;
+        const oldPlayer = document.getElementById(stablePlayerId);
+        content.innerHTML = renderEntry(entryId);
         initPersonnageEntryRail();
-        initEntryMusicPlayers();
+        const newPlayer = document.getElementById(stablePlayerId);
+        let preserved = false;
+        if (oldPlayer && newPlayer && oldPlayer.dataset.kind === newPlayer.dataset.kind) {
+            const oldSrc = oldPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            const newSrc = newPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            if (oldSrc && oldSrc === newSrc) {
+                newPlayer.replaceWith(oldPlayer);
+                preserved = true;
+            }
+        }
+        if (!preserved) initEntryMusicPlayers();
     }
     else {
         content.innerHTML = renderNotFound();
