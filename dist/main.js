@@ -4435,10 +4435,38 @@ function novelancePointInPolygon(pt, poly) {
     }
     return inside;
 }
-function novelanceRingBuildings(cx, cy, rInner, rOuter, color, angStepDeg, radialBands, seed, ruined) {
+const NOVELANCE_ISO_C = Math.cos(Math.PI / 6);
+const NOVELANCE_ISO_S = Math.sin(Math.PI / 6);
+const NOVELANCE_ISO_TX = 700, NOVELANCE_ISO_TY = 60;
+function novelanceIsoProject(x, y, z = 0) {
+    return [NOVELANCE_ISO_C * (x - y) + NOVELANCE_ISO_TX, NOVELANCE_ISO_S * (x + y) - z + NOVELANCE_ISO_TY];
+}
+function novelanceShrinkQuad(corners, factor) {
+    const ccx = corners.reduce((s, p) => s + p[0], 0) / corners.length;
+    const ccy = corners.reduce((s, p) => s + p[1], 0) / corners.length;
+    return corners.map(p => [ccx + (p[0] - ccx) * factor, ccy + (p[1] - ccy) * factor]);
+}
+function novelanceIsoBuilding(corners, baseZ, topZ, topColor, wallColor) {
+    const ccx = corners.reduce((s, p) => s + p[0], 0) / corners.length;
+    const ccy = corners.reduce((s, p) => s + p[1], 0) / corners.length;
+    const base = corners.map(p => novelanceIsoProject(p[0], p[1], baseZ));
+    const top = corners.map(p => novelanceIsoProject(p[0], p[1], topZ));
+    const n = corners.length;
+    let walls = '';
+    for (let i = 0; i < n; i++) {
+        const j = (i + 1) % n;
+        const mx = (corners[i][0] + corners[j][0]) / 2, my = (corners[i][1] + corners[j][1]) / 2;
+        if ((mx - ccx) + (my - ccy) <= 0) continue;
+        const pts = [base[i], base[j], top[j], top[i]];
+        walls += `<polygon points="${pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="${wallColor}" pointer-events="none"/>`;
+    }
+    const roof = `<polygon points="${top.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="${topColor}" pointer-events="none"/>`;
+    return { key: ccx + ccy, svg: walls + roof };
+}
+function novelanceRingBuildings(cx, cy, rInner, rOuter, color, angStepDeg, radialBands, seed, baseHeight, ruined) {
     let s = seed;
     const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return (s % 1000) / 1000; };
-    const out = [];
+    const pieces = [];
     const angCount = Math.round(360 / angStepDeg);
     const inset = 0.16;
     for (let ai = 0; ai < angCount; ai++) {
@@ -4455,52 +4483,58 @@ function novelanceRingBuildings(cx, cy, rInner, rOuter, color, angStepDeg, radia
                 return [top[0] + (bot[0] - top[0]) * v, top[1] + (bot[1] - top[1]) * v];
             };
             const pts = [bilerp(inset, inset), bilerp(1 - inset, inset), bilerp(1 - inset, 1 - inset), bilerp(inset, 1 - inset)];
+            const ccx = pts.reduce((s2, p) => s2 + p[0], 0) / 4, ccy = pts.reduce((s2, p) => s2 + p[1], 0) / 4;
             const shade = 0.78 + rand() * 0.4;
-            const isRuin = ruined && rand() < 0.4;
-            if (isRuin) {
-                out.push(`<polygon points="${pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.55" pointer-events="none"/>`);
+            if (ruined && rand() < 0.4) {
+                const flat = pts.map(p => novelanceIsoProject(p[0], p[1], 0));
+                pieces.push({ key: ccx + ccy, svg: `<polygon points="${flat.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.5" pointer-events="none"/>` });
                 continue;
             }
-            const dx = 2.2, dy = 3.1;
-            out.push(`<polygon points="${pts.map(p => `${(p[0] + dx).toFixed(1)},${(p[1] + dy).toFixed(1)}`).join(' ')}" fill="${novelanceShade(color, shade * 0.5)}" pointer-events="none"/>`);
-            out.push(`<polygon points="${pts.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="${novelanceShade(color, shade)}" pointer-events="none"/>`);
+            const h = baseHeight * (0.55 + rand() * 0.9);
+            const piece = novelanceIsoBuilding(pts, 0, h, novelanceShade(color, shade), novelanceShade(color, shade * 0.5));
+            if (rand() < 0.3) {
+                const small = novelanceShrinkQuad(pts, 0.5);
+                const h2 = h + baseHeight * (0.3 + rand() * 0.6);
+                const topTier = novelanceIsoBuilding(small, h, h2, novelanceShade(color, Math.min(1.35, shade * 1.08)), novelanceShade(color, shade * 0.45));
+                piece.svg += topTier.svg;
+            }
+            pieces.push(piece);
         }
     }
-    return out.join('');
+    return pieces;
 }
-function novelanceScatterBuildings(poly, color, count, seed, ruined) {
+function novelanceScatterBuildings(poly, color, count, seed, baseHeight, ruined) {
     let s = seed;
     const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return (s % 1000) / 1000; };
     const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
     const minX = Math.min(...xs), maxX = Math.max(...xs), minY = Math.min(...ys), maxY = Math.max(...ys);
-    const out = [];
+    const pieces = [];
     let placed = 0, attempts = 0;
     while (placed < count && attempts < count * 10) {
         attempts++;
         const x = minX + rand() * (maxX - minX), y = minY + rand() * (maxY - minY);
         if (!novelancePointInPolygon([x, y], poly)) continue;
-        const w = 9 + rand() * 15, h = 9 + rand() * 15, rot = (rand() * 40 - 20).toFixed(1);
+        const w = 9 + rand() * 15, hlen = 9 + rand() * 15;
+        const corners = [[x - w / 2, y - hlen / 2], [x + w / 2, y - hlen / 2], [x + w / 2, y + hlen / 2], [x - w / 2, y + hlen / 2]];
         const shade = 0.72 + rand() * 0.42;
         if (ruined && rand() < 0.4) {
-            out.push(`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot})" pointer-events="none">
-        <rect x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.55"/>
-      </g>`);
+            const flat = corners.map(p => novelanceIsoProject(p[0], p[1], 0));
+            pieces.push({ key: x + y, svg: `<polygon points="${flat.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.5" pointer-events="none"/>` });
             placed++;
             continue;
         }
-        out.push(`<g transform="translate(${x.toFixed(1)},${y.toFixed(1)}) rotate(${rot})" pointer-events="none">
-      <rect x="${(-w / 2 + 2.2).toFixed(1)}" y="${(-h / 2 + 3.1).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${novelanceShade(color, shade * 0.5)}"/>
-      <rect x="${(-w / 2).toFixed(1)}" y="${(-h / 2).toFixed(1)}" width="${w.toFixed(1)}" height="${h.toFixed(1)}" fill="${novelanceShade(color, shade)}"/>
-    </g>`);
+        const h = baseHeight * (0.5 + rand() * 1.1);
+        pieces.push(novelanceIsoBuilding(corners, 0, h, novelanceShade(color, shade), novelanceShade(color, shade * 0.5)));
         placed++;
     }
-    return out.join('');
+    return pieces;
 }
 function novelanceMapSvg() {
     const cx = 430, cy = 400;
     const r0 = 60, r1 = 130, r2 = 205, r3 = 280;
     const road = '#5be6ee';
     const roadDim = 'rgba(91,230,238,0.4)';
+    const isoMatrix = `matrix(${NOVELANCE_ISO_C.toFixed(4)},${NOVELANCE_ISO_S.toFixed(4)},${(-NOVELANCE_ISO_C).toFixed(4)},${NOVELANCE_ISO_S.toFixed(4)},${NOVELANCE_ISO_TX},${NOVELANCE_ISO_TY})`;
     const spokes = Array.from({ length: 12 }, (_, i) => {
         const ang = i * 30;
         const [x1, y1] = novelancePolar(cx, cy, r0, ang);
@@ -4520,8 +4554,18 @@ function novelanceMapSvg() {
     </g>`).join('');
     const industriePoly = [[685, 300], [790, 255], [865, 285], [885, 340], [860, 400], [885, 460], [865, 520], [790, 548], [685, 500]];
     const ruinesPoly = [[150, 560], [232, 518], [322, 540], [382, 582], [420, 650], [400, 720], [318, 742], [216, 720], [146, 680], [120, 618]];
+    const buildingPieces = [
+        ...novelanceRingBuildings(cx, cy, 0, r0, '#e8dcd8', 15, 2, 11, 40),
+        ...novelanceRingBuildings(cx, cy, r0, r1, '#b4394a', 18, 2, 23, 52),
+        ...novelanceRingBuildings(cx, cy, r1, r2, '#c97f42', 14, 2, 37, 34),
+        ...novelanceRingBuildings(cx, cy, r2, r3, '#6d7178', 12, 2, 53, 24),
+        ...novelanceScatterBuildings(industriePoly, '#5c7789', 34, 71, 30),
+        ...novelanceScatterBuildings(ruinesPoly, '#4a2c37', 26, 89, 14, true),
+    ];
+    buildingPieces.sort((a, b) => a.key - b.key);
+    const buildingsSvg = buildingPieces.map(p => p.svg).join('');
     return `
-  <svg class="novelance-svg" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Carte de Novelance">
+  <svg class="novelance-svg" id="novelanceSvg" viewBox="0 0 1500 950" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Carte de Novelance">
     <defs>
       <filter id="novGlow" x="-60%" y="-60%" width="220%" height="220%">
         <feGaussianBlur stdDeviation="2.6" result="blur"/>
@@ -4530,44 +4574,41 @@ function novelanceMapSvg() {
           <feMergeNode in="SourceGraphic"/>
         </feMerge>
       </filter>
-      <radialGradient id="novBg" cx="38%" cy="45%" r="80%">
+      <radialGradient id="novBg" cx="42%" cy="40%" r="85%">
         <stop offset="0%" stop-color="#0a0f18"/>
         <stop offset="55%" stop-color="#060a12"/>
         <stop offset="100%" stop-color="#02040a"/>
       </radialGradient>
     </defs>
-    <rect x="0" y="0" width="1200" height="760" fill="url(#novBg)"/>
+    <rect x="0" y="0" width="1500" height="950" fill="url(#novBg)"/>
 
     <!-- sol / zones cliquables (fond sombre, la couleur du district vient des bâtiments par-dessus) -->
-    <g class="novelance-district" data-id="industrielle" onclick="showNovelanceDistrict('industrielle')" style="cursor:pointer">
-      <path d="${industriePoly.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ')} Z" fill="${novelanceShade('#5c7789', 0.14)}"/>
-    </g>
-    <g class="novelance-district" data-id="ruines" onclick="showNovelanceDistrict('ruines')" style="cursor:pointer">
-      <path d="${ruinesPoly.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ')} Z" fill="${novelanceShade('#4a2c37', 0.14)}"/>
-    </g>
-    <g class="novelance-district" data-id="populaires" onclick="showNovelanceDistrict('populaires')" style="cursor:pointer">
-      <circle cx="${cx}" cy="${cy}" r="${r3}" fill="${novelanceShade('#6d7178', 0.14)}"/>
-    </g>
-    <g class="novelance-district" data-id="intermediaires" onclick="showNovelanceDistrict('intermediaires')" style="cursor:pointer">
-      <circle cx="${cx}" cy="${cy}" r="${r2}" fill="${novelanceShade('#c97f42', 0.14)}"/>
-    </g>
-    <g class="novelance-district" data-id="superieurs" onclick="showNovelanceDistrict('superieurs')" style="cursor:pointer">
-      <circle cx="${cx}" cy="${cy}" r="${r1}" fill="${novelanceShade('#b4394a', 0.14)}"/>
-    </g>
-    <g class="novelance-district" data-id="centre" onclick="showNovelanceDistrict('centre')" style="cursor:pointer">
-      <circle cx="${cx}" cy="${cy}" r="${r0}" fill="${novelanceShade('#e8dcd8', 0.16)}"/>
+    <g transform="${isoMatrix}">
+      <g class="novelance-district" data-id="industrielle" onclick="showNovelanceDistrict('industrielle')" style="cursor:pointer">
+        <path d="${industriePoly.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ')} Z" fill="${novelanceShade('#5c7789', 0.14)}"/>
+      </g>
+      <g class="novelance-district" data-id="ruines" onclick="showNovelanceDistrict('ruines')" style="cursor:pointer">
+        <path d="${ruinesPoly.map((p, i) => `${i === 0 ? 'M' : 'L'}${p[0]},${p[1]}`).join(' ')} Z" fill="${novelanceShade('#4a2c37', 0.14)}"/>
+      </g>
+      <g class="novelance-district" data-id="populaires" onclick="showNovelanceDistrict('populaires')" style="cursor:pointer">
+        <circle cx="${cx}" cy="${cy}" r="${r3}" fill="${novelanceShade('#6d7178', 0.14)}"/>
+      </g>
+      <g class="novelance-district" data-id="intermediaires" onclick="showNovelanceDistrict('intermediaires')" style="cursor:pointer">
+        <circle cx="${cx}" cy="${cy}" r="${r2}" fill="${novelanceShade('#c97f42', 0.14)}"/>
+      </g>
+      <g class="novelance-district" data-id="superieurs" onclick="showNovelanceDistrict('superieurs')" style="cursor:pointer">
+        <circle cx="${cx}" cy="${cy}" r="${r1}" fill="${novelanceShade('#b4394a', 0.14)}"/>
+      </g>
+      <g class="novelance-district" data-id="centre" onclick="showNovelanceDistrict('centre')" style="cursor:pointer">
+        <circle cx="${cx}" cy="${cy}" r="${r0}" fill="${novelanceShade('#e8dcd8', 0.16)}"/>
+      </g>
     </g>
 
-    <!-- bâtiments : pâtés extrudés (toit clair + mur sombre décalé) -->
-    ${novelanceRingBuildings(cx, cy, 0, r0, '#e8dcd8', 15, 2, 11)}
-    ${novelanceRingBuildings(cx, cy, r0, r1, '#b4394a', 18, 2, 23)}
-    ${novelanceRingBuildings(cx, cy, r1, r2, '#c97f42', 14, 2, 37)}
-    ${novelanceRingBuildings(cx, cy, r2, r3, '#6d7178', 12, 2, 53)}
-    ${novelanceScatterBuildings(industriePoly, '#5c7789', 34, 71)}
-    ${novelanceScatterBuildings(ruinesPoly, '#4a2c37', 26, 89, true)}
+    <!-- bâtiments : extrusion isométrique, triés par profondeur -->
+    ${buildingsSvg}
 
     <!-- port : quais et navires -->
-    <g pointer-events="none">
+    <g transform="${isoMatrix}" pointer-events="none">
       <line x1="885" y1="340" x2="1080" y2="320" stroke="${road}" stroke-width="7" opacity="0.55"/>
       <line x1="885" y1="400" x2="1055" y2="400" stroke="${road}" stroke-width="7" opacity="0.55"/>
       <line x1="885" y1="460" x2="1080" y2="480" stroke="${road}" stroke-width="7" opacity="0.55"/>
@@ -4576,10 +4617,10 @@ function novelanceMapSvg() {
       <line x1="1120" y1="374" x2="1120" y2="330" stroke="${road}" stroke-width="5" opacity="0.55"/>
       <line x1="1120" y1="426" x2="1120" y2="470" stroke="${road}" stroke-width="5" opacity="0.55"/>
     </g>
-    ${ships}
+    <g transform="${isoMatrix}">${ships}</g>
 
     <!-- voirie : avenues radiales, anneaux de rocade, carrefours (lueur néon) -->
-    <g filter="url(#novGlow)" pointer-events="none">
+    <g transform="${isoMatrix}" filter="url(#novGlow)" pointer-events="none">
       ${spokes}
       <circle cx="${cx}" cy="${cy}" r="${r0}" fill="none" stroke="${road}" stroke-width="1.8"/>
       <circle cx="${cx}" cy="${cy}" r="${r1}" fill="none" stroke="${road}" stroke-width="1.8"/>
@@ -4587,65 +4628,127 @@ function novelanceMapSvg() {
       <circle cx="${cx}" cy="${cy}" r="${r3}" fill="none" stroke="${road}" stroke-width="1.8"/>
       ${junctions}
     </g>
-
-    <!-- titre / emblème -->
-    <g transform="translate(40,40)">
-      <path d="M8,0 L14,26 L8,52 L2,26 Z" fill="none" stroke="#c9cfda" stroke-width="1.6"/>
-      <path d="M0,26 L16,20 L32,26 L16,32 Z" fill="none" stroke="#c9cfda" stroke-width="1.2" opacity="0.7"/>
-      <text x="46" y="22" font-family="'IBM Plex Mono', monospace" font-size="26" letter-spacing="6" fill="#e4e8ef">NOVELANCE</text>
-      <text x="46" y="42" font-family="'IBM Plex Mono', monospace" font-size="11" letter-spacing="3" fill="#8b95a6">LE BASTION DE LA NOUVELLE ÈRE</text>
-    </g>
-
-    <!-- légende -->
-    <g transform="translate(920,26)">
-      <rect x="0" y="0" width="252" height="222" fill="#0d1420" opacity="0.86" stroke="${roadDim}" stroke-width="1"/>
-      <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="12" letter-spacing="2" fill="#c7cfdb">DISTRICTS</text>
-      ${NOVELANCE_DISTRICTS.map((d, i) => `
-        <rect x="16" y="${40 + i * 20}" width="12" height="12" fill="${d.color}"/>
-        <text x="34" y="${50 + i * 20}" font-family="'EB Garamond', serif" font-size="12.5" fill="#c7cfdb">${esc(d.label)}</text>
-      `).join('')}
-      <line x1="16" y1="168" x2="236" y2="168" stroke="${roadDim}" stroke-width="1"/>
-      <line x1="16" y1="182" x2="30" y2="182" stroke="${road}" stroke-width="1.4"/>
-      <text x="36" y="186" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Réseau de transport aérien</text>
-      <line x1="16" y1="196" x2="30" y2="196" stroke="${road}" stroke-width="3"/>
-      <text x="36" y="200" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Réseau de transport au sol</text>
-      <line x1="16" y1="210" x2="30" y2="210" stroke="#5c7789" stroke-width="4"/>
-      <text x="36" y="214" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Port / zone maritime</text>
-      <line x1="16" y1="224" x2="30" y2="224" stroke="${roadDim}" stroke-width="1" stroke-dasharray="2,2"/>
-      <text x="36" y="228" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Limite de district</text>
-    </g>
-
-    <!-- boussole -->
-    <g transform="translate(90,678)">
-      <circle cx="0" cy="0" r="34" fill="none" stroke="${roadDim}" stroke-width="1.2"/>
-      <path d="M0,-26 L7,0 L0,26 L-7,0 Z" fill="#c7cfdb" opacity="0.85"/>
-      <text x="0" y="-38" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c7cfdb">N</text>
-      <text x="44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">E</text>
-      <text x="0" y="50" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">S</text>
-      <text x="-44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">O</text>
-    </g>
-
-    <!-- échelle -->
-    <g transform="translate(150,738)">
-      <line x1="0" y1="0" x2="180" y2="0" stroke="${road}" stroke-width="1.4"/>
-      ${[0, 60, 120, 180].map(x => `<line x1="${x}" y1="-5" x2="${x}" y2="5" stroke="${road}" stroke-width="1.4"/>`).join('')}
-      <text x="0" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">0</text>
-      <text x="60" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">1</text>
-      <text x="120" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">2</text>
-      <text x="180" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">5 km</text>
-    </g>
   </svg>`;
+}
+function novelanceHudHtml() {
+    return `
+    <div class="novelance-hud">
+      <div class="novelance-hud-title">
+        <svg width="32" height="52" viewBox="0 0 32 52">
+          <path d="M8,0 L14,26 L8,52 L2,26 Z" fill="none" stroke="#c9cfda" stroke-width="1.6"/>
+          <path d="M0,26 L16,20 L32,26 L16,32 Z" fill="none" stroke="#c9cfda" stroke-width="1.2" opacity="0.7"/>
+        </svg>
+        <div>
+          <div class="novelance-hud-name">NOVELANCE</div>
+          <div class="novelance-hud-tagline">LE BASTION DE LA NOUVELLE ÈRE</div>
+        </div>
+      </div>
+
+      <div class="novelance-hud-legend">
+        <div class="novelance-hud-legend-title">DISTRICTS</div>
+        ${NOVELANCE_DISTRICTS.map(d => `
+          <div class="novelance-hud-legend-row"><span class="novelance-hud-swatch" style="background:${d.color}"></span>${esc(d.label)}</div>
+        `).join('')}
+        <div class="novelance-hud-legend-divider"></div>
+        <div class="novelance-hud-legend-row"><span class="novelance-hud-line" style="border-top:1.4px solid #5be6ee"></span>Réseau de transport aérien</div>
+        <div class="novelance-hud-legend-row"><span class="novelance-hud-line" style="border-top:3px solid #5be6ee"></span>Réseau de transport au sol</div>
+        <div class="novelance-hud-legend-row"><span class="novelance-hud-line" style="border-top:4px solid #5c7789"></span>Port / zone maritime</div>
+        <div class="novelance-hud-legend-row"><span class="novelance-hud-line" style="border-top:1px dashed rgba(91,230,238,0.4)"></span>Limite de district</div>
+      </div>
+
+      <div class="novelance-hud-compass">
+        <svg width="88" height="88" viewBox="-44 -44 88 88">
+          <circle cx="0" cy="0" r="34" fill="none" stroke="rgba(91,230,238,0.4)" stroke-width="1.2"/>
+          <path d="M0,-26 L7,0 L0,26 L-7,0 Z" fill="#c7cfdb" opacity="0.85"/>
+          <text x="0" y="-38" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c7cfdb">N</text>
+          <text x="44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">E</text>
+          <text x="0" y="50" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">S</text>
+          <text x="-44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">O</text>
+        </svg>
+      </div>
+
+      <div class="novelance-hud-scale">
+        <svg width="200" height="30" viewBox="0 0 200 30">
+          <line x1="10" y1="20" x2="190" y2="20" stroke="#5be6ee" stroke-width="1.4"/>
+          ${[10, 70, 130, 190].map(x => `<line x1="${x}" y1="15" x2="${x}" y2="25" stroke="#5be6ee" stroke-width="1.4"/>`).join('')}
+          <text x="10" y="12" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">0</text>
+          <text x="70" y="12" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">1</text>
+          <text x="130" y="12" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">2</text>
+          <text x="190" y="12" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">5 km</text>
+        </svg>
+      </div>
+
+      <div class="novelance-hud-hint">🖱️ Glisser pour déplacer · Molette pour zoomer</div>
+    </div>
+  `;
 }
 function renderNovelance() {
     return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('carte')" style="cursor:pointer">Carte</span> / Novelance</div>
     <div class="novelance-page">
-      <div class="novelance-map-wrap">${novelanceMapSvg()}</div>
+      <div class="novelance-map-wrap" id="novelanceMapWrap">
+        ${novelanceMapSvg()}
+        ${novelanceHudHtml()}
+      </div>
       <div class="novelance-info" id="novelanceInfo">
         <div class="novelance-info-hint">Clique sur un quartier de la carte pour en savoir plus.</div>
       </div>
     </div>
   `;
+}
+function initNovelanceMap() {
+    const wrap = document.getElementById('novelanceMapWrap');
+    const svg = document.getElementById('novelanceSvg');
+    if (!wrap || !svg) return;
+    const cam = { x: 0, y: 0, scale: 0.62 };
+    const minScale = 0.35, maxScale = 2.2;
+    let dragging = false, moved = false;
+    let down = null;
+    function apply() {
+        svg.style.transform = `translate(${cam.x}px, ${cam.y}px) scale(${cam.scale})`;
+    }
+    svg.style.transformOrigin = '0 0';
+    const wrapRect = wrap.getBoundingClientRect();
+    cam.x = (wrapRect.width - 1500 * cam.scale) / 2;
+    cam.y = (wrapRect.height - 950 * cam.scale) / 2;
+    apply();
+    function onDown(e) {
+        dragging = true; moved = false;
+        down = { x: e.clientX, y: e.clientY, cx: cam.x, cy: cam.y };
+        wrap.style.cursor = 'grabbing';
+    }
+    function onMove(e) {
+        if (!dragging || !down) return;
+        const dx = e.clientX - down.x, dy = e.clientY - down.y;
+        if (Math.hypot(dx, dy) > 4) moved = true;
+        cam.x = down.cx + dx;
+        cam.y = down.cy + dy;
+        apply();
+    }
+    function onUp() {
+        dragging = false;
+        wrap.style.cursor = 'grab';
+        if (moved) {
+            const block = (ev) => { ev.stopPropagation(); wrap.removeEventListener('click', block, true); };
+            wrap.addEventListener('click', block, true);
+        }
+        down = null;
+    }
+    function onWheel(e) {
+        e.preventDefault();
+        const rect = wrap.getBoundingClientRect();
+        const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+        const prevScale = cam.scale;
+        cam.scale = Math.max(minScale, Math.min(maxScale, cam.scale * (e.deltaY > 0 ? 0.9 : 1.1)));
+        cam.x = mx - (mx - cam.x) * (cam.scale / prevScale);
+        cam.y = my - (my - cam.y) * (cam.scale / prevScale);
+        apply();
+    }
+    wrap.style.cursor = 'grab';
+    wrap.addEventListener('pointerdown', onDown);
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+    wrap.addEventListener('wheel', onWheel, { passive: false });
 }
 function showNovelanceDistrict(id) {
     const d = NOVELANCE_DISTRICTS.find(x => x.id === id);
@@ -4821,6 +4924,7 @@ function render() {
     }
     else if (route === 'novelance') {
         content.innerHTML = renderNovelance();
+        initNovelanceMap();
     }
     else if (route === 'halcyon') {
         dockHalcyonLogoImmediate();
