@@ -631,6 +631,30 @@ h1,h2,h3,h4{
 }
 .map-panel-back:hover{ border-color: var(--verdigris); color: var(--verdigris); }
 
+/* ---- Novelance : carte radiale de la cité-bastion ---- */
+.novelance-page{
+  border: 1px solid var(--border); border-radius: var(--radius);
+  background: var(--surface); overflow:hidden;
+}
+.novelance-map-wrap{ width:100%; line-height:0; }
+.novelance-svg{ width:100%; height:auto; display:block; }
+.novelance-district{ transition: opacity .15s ease; }
+.novelance-district:hover{ opacity:0.82; }
+.novelance-info{
+  display:flex; gap:16px; align-items:flex-start;
+  padding: 20px 26px; border-top: 1px solid var(--border);
+}
+.novelance-info-hint{ color: var(--text-dim); font-size:13px; }
+.novelance-info-swatch{
+  flex:none; width:16px; height:16px; margin-top:3px; border-radius:2px;
+  border:1px solid var(--border);
+}
+.novelance-info-title{
+  font-family:'IBM Plex Mono', monospace; font-size:12px; text-transform:uppercase;
+  letter-spacing:0.06em; color: var(--verdigris); margin-bottom:6px;
+}
+.novelance-info-desc{ font-size:14px; line-height:1.7; color: var(--text); max-width:70ch; }
+
 /* ---- Carte plein écran (page dédiée avec couverture + exploration) ---- */
 .map-overlay{
   position: fixed; inset:0; z-index: 5000;
@@ -3022,6 +3046,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=19"></script>
+<script src="dist/main.js?v=20"></script>
 </body>
 </html>

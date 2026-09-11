@@ -4100,6 +4100,15 @@ function initMap() {
         worldEl.appendChild(pin);
         setTimeout(() => pin.classList.remove('pin-enter'), 120 + i * 90);
     });
+    const novelancePin = document.createElement('div');
+    novelancePin.className = 'map-pin2d pin-enter';
+    novelancePin.style.left = '760px';
+    novelancePin.style.top = '420px';
+    novelancePin.title = 'Novelance';
+    novelancePin.innerHTML = `<div class="badge" style="--gclr:196,58,74"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2" fill="currentColor" stroke="none"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg></div><span class="lbl">Novelance</span>`;
+    novelancePin.addEventListener('click', (ev) => { ev.stopPropagation(); navigate('novelance'); });
+    worldEl.appendChild(novelancePin);
+    setTimeout(() => novelancePin.classList.remove('pin-enter'), 120 + MAP_ZONES.length * 90);
     MAP_ZONES.forEach(z => {
         (z.pois || []).forEach(p => {
             const poi = document.createElement('div');
@@ -4391,6 +4400,170 @@ function closeMapOverlay() {
     setTimeout(() => { const el = document.getElementById('mapOverlay'); if (el)
         el.remove(); }, 420);
 }
+/* ---------------- NOVELANCE — CARTE DE LA CITÉ-BASTION (plan radial) ---------------- */
+const NOVELANCE_DISTRICTS = [
+    { id: 'centre', label: 'Centre politique / Halcyon', color: '#e8dcd8',
+        desc: "Le cœur du pouvoir de Novelance : sièges administratifs et laboratoires de Halcyon, protégés par plusieurs anneaux de sécurité concentriques. Personne n'y entre sans habilitation." },
+    { id: 'superieurs', label: 'Quartiers supérieurs', color: '#b4394a',
+        desc: "Résidences des dirigeants, des cadres de Halcyon et des hybrides de haut rang, à l'ombre immédiate du centre politique. L'architecture y est aussi imposante que surveillée." },
+    { id: 'intermediaires', label: 'Quartiers intermédiaires', color: '#c97f42',
+        desc: "Commerces, écoles et logements de la classe moyenne de la cité — le tissu le plus animé de Novelance, entre les fastes du centre et la densité des faubourgs." },
+    { id: 'populaires', label: 'Quartiers populaires', color: '#6d7178',
+        desc: "Le quotidien de la majorité des habitants : bâtiments plus anciens, plus denses, souvent hérités d'avant la reconstruction. C'est ici que bat le vrai pouls de la ville." },
+    { id: 'industrielle', label: 'Zone industrielle / portuaire', color: '#5c7789',
+        desc: "Usines, entrepôts et quais qui alimentent Novelance en ressources et en Essence. Le trafic y est incessant, jour et nuit, entre les cargos et les convois vers le centre." },
+    { id: 'ruines', label: 'Ancienne cité (ruines)', color: '#4a2c37',
+        desc: "Les vestiges de la ville d'avant la chute, jamais totalement reconstruits ni abandonnés. Certains y vivent encore, en marge de la Novelance officielle." },
+];
+function novelancePolar(cx, cy, r, angleDeg) {
+    const a = (angleDeg - 90) * Math.PI / 180;
+    return [cx + r * Math.cos(a), cy + r * Math.sin(a)];
+}
+function novelanceMapSvg() {
+    const cx = 430, cy = 400;
+    const r0 = 60, r1 = 130, r2 = 205, r3 = 280;
+    const line = 'rgba(200,213,230,0.38)';
+    const lineStrong = 'rgba(212,222,236,0.62)';
+    const spokes = Array.from({ length: 12 }, (_, i) => {
+        const ang = i * 30;
+        const [x1, y1] = novelancePolar(cx, cy, r0, ang);
+        const [x2, y2] = novelancePolar(cx, cy, r3, ang);
+        return `<line x1="${x1.toFixed(1)}" y1="${y1.toFixed(1)}" x2="${x2.toFixed(1)}" y2="${y2.toFixed(1)}" stroke="${line}" stroke-width="1.4"/>`;
+    }).join('');
+    const junctions = [r0, r1, r2, r3].map(r => Array.from({ length: 12 }, (_, i) => {
+        const [x, y] = novelancePolar(cx, cy, r, i * 30);
+        return `<circle cx="${x.toFixed(1)}" cy="${y.toFixed(1)}" r="2.2" fill="${lineStrong}"/>`;
+    }).join('')).join('');
+    const ships = [
+        [1005, 300, 20, '0'], [1040, 345, -8, '1'], [990, 400, 0, '2'], [1035, 455, 10, '3'], [1000, 505, -4, '4'],
+        [1105, 375, 15, '5'], [1120, 430, -10, '6'],
+    ].map(([x, y, rot]) => `
+    <g transform="translate(${x},${y}) rotate(${rot})" fill="${lineStrong}" opacity="0.8">
+      <path d="M-14,0 L10,0 L14,-3 L-14,-3 Z"/>
+    </g>`).join('');
+    return `
+  <svg class="novelance-svg" viewBox="0 0 1200 760" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Carte de Novelance">
+    <defs>
+      <radialGradient id="novBg" cx="38%" cy="45%" r="75%">
+        <stop offset="0%" stop-color="#0f1826"/>
+        <stop offset="60%" stop-color="#0a121e"/>
+        <stop offset="100%" stop-color="#050810"/>
+      </radialGradient>
+    </defs>
+    <rect x="0" y="0" width="1200" height="760" fill="url(#novBg)"/>
+
+    <!-- zone industrielle / portuaire (attachée au bord est de la cité) -->
+    <g class="novelance-district" data-id="industrielle" onclick="showNovelanceDistrict('industrielle')" style="cursor:pointer">
+      <path d="M685,300 L790,255 L865,285 L885,340 L860,400 L885,460 L865,520 L790,548 L685,500 Z" fill="#5c7789" opacity="0.85"/>
+      <line x1="885" y1="340" x2="1080" y2="320" stroke="${lineStrong}" stroke-width="10"/>
+      <line x1="885" y1="400" x2="1055" y2="400" stroke="${lineStrong}" stroke-width="10"/>
+      <line x1="885" y1="460" x2="1080" y2="480" stroke="${lineStrong}" stroke-width="10"/>
+      <circle cx="1120" cy="400" r="26" fill="#5c7789" opacity="0.85"/>
+      <line x1="1055" y1="400" x2="1094" y2="400" stroke="${lineStrong}" stroke-width="4"/>
+      <line x1="1120" y1="374" x2="1120" y2="330" stroke="${lineStrong}" stroke-width="6"/>
+      <line x1="1120" y1="426" x2="1120" y2="470" stroke="${lineStrong}" stroke-width="6"/>
+    </g>
+    ${ships}
+
+    <!-- ancienne cité (ruines), au sud-ouest -->
+    <g class="novelance-district" data-id="ruines" onclick="showNovelanceDistrict('ruines')" style="cursor:pointer">
+      <path d="M150,560 L232,518 L322,540 L382,582 L420,650 L400,720 L318,742 L216,720 L146,680 L120,618 Z" fill="#4a2c37" opacity="0.85"/>
+    </g>
+
+    <!-- anneaux de la cité (du plus grand au plus petit, pour un rendu en anneaux concentriques) -->
+    <g class="novelance-district" data-id="populaires" onclick="showNovelanceDistrict('populaires')" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r3}" fill="#6d7178"/>
+    </g>
+    <g class="novelance-district" data-id="intermediaires" onclick="showNovelanceDistrict('intermediaires')" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r2}" fill="#c97f42"/>
+    </g>
+    <g class="novelance-district" data-id="superieurs" onclick="showNovelanceDistrict('superieurs')" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r1}" fill="#b4394a"/>
+    </g>
+    <g class="novelance-district" data-id="centre" onclick="showNovelanceDistrict('centre')" style="cursor:pointer">
+      <circle cx="${cx}" cy="${cy}" r="${r0}" fill="#e8dcd8"/>
+    </g>
+
+    <!-- voirie : avenues radiales, anneaux de rocade, carrefours -->
+    ${spokes}
+    <circle cx="${cx}" cy="${cy}" r="${r0}" fill="none" stroke="${lineStrong}" stroke-width="1.6"/>
+    <circle cx="${cx}" cy="${cy}" r="${r1}" fill="none" stroke="${lineStrong}" stroke-width="1.6"/>
+    <circle cx="${cx}" cy="${cy}" r="${r2}" fill="none" stroke="${lineStrong}" stroke-width="1.6"/>
+    <circle cx="${cx}" cy="${cy}" r="${r3}" fill="none" stroke="${lineStrong}" stroke-width="1.6"/>
+    ${junctions}
+
+    <!-- titre / emblème -->
+    <g transform="translate(40,40)">
+      <path d="M8,0 L14,26 L8,52 L2,26 Z" fill="none" stroke="#c9cfda" stroke-width="1.6"/>
+      <path d="M0,26 L16,20 L32,26 L16,32 Z" fill="none" stroke="#c9cfda" stroke-width="1.2" opacity="0.7"/>
+      <text x="46" y="22" font-family="'IBM Plex Mono', monospace" font-size="26" letter-spacing="6" fill="#e4e8ef">NOVELANCE</text>
+      <text x="46" y="42" font-family="'IBM Plex Mono', monospace" font-size="11" letter-spacing="3" fill="#8b95a6">LE BASTION DE LA NOUVELLE ÈRE</text>
+    </g>
+
+    <!-- légende -->
+    <g transform="translate(920,26)">
+      <rect x="0" y="0" width="252" height="222" fill="#0d1420" opacity="0.86" stroke="${line}" stroke-width="1"/>
+      <text x="16" y="24" font-family="'IBM Plex Mono', monospace" font-size="12" letter-spacing="2" fill="#c7cfdb">DISTRICTS</text>
+      ${NOVELANCE_DISTRICTS.map((d, i) => `
+        <rect x="16" y="${40 + i * 20}" width="12" height="12" fill="${d.color}"/>
+        <text x="34" y="${50 + i * 20}" font-family="'EB Garamond', serif" font-size="12.5" fill="#c7cfdb">${esc(d.label)}</text>
+      `).join('')}
+      <line x1="16" y1="168" x2="236" y2="168" stroke="${line}" stroke-width="1"/>
+      <line x1="16" y1="182" x2="30" y2="182" stroke="${lineStrong}" stroke-width="1.4"/>
+      <text x="36" y="186" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Réseau de transport aérien</text>
+      <line x1="16" y1="196" x2="30" y2="196" stroke="${lineStrong}" stroke-width="3"/>
+      <text x="36" y="200" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Réseau de transport au sol</text>
+      <line x1="16" y1="210" x2="30" y2="210" stroke="#5c7789" stroke-width="4"/>
+      <text x="36" y="214" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Port / zone maritime</text>
+      <line x1="16" y1="224" x2="30" y2="224" stroke="${line}" stroke-width="1" stroke-dasharray="2,2"/>
+      <text x="36" y="228" font-family="'EB Garamond', serif" font-size="11.5" fill="#9aa7b8">Limite de district</text>
+    </g>
+
+    <!-- boussole -->
+    <g transform="translate(90,678)">
+      <circle cx="0" cy="0" r="34" fill="none" stroke="${line}" stroke-width="1.2"/>
+      <path d="M0,-26 L7,0 L0,26 L-7,0 Z" fill="#c7cfdb" opacity="0.85"/>
+      <text x="0" y="-38" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#c7cfdb">N</text>
+      <text x="44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">E</text>
+      <text x="0" y="50" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">S</text>
+      <text x="-44" y="4" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="11" fill="#9aa7b8">O</text>
+    </g>
+
+    <!-- échelle -->
+    <g transform="translate(150,738)">
+      <line x1="0" y1="0" x2="180" y2="0" stroke="${lineStrong}" stroke-width="1.4"/>
+      ${[0, 60, 120, 180].map(x => `<line x1="${x}" y1="-5" x2="${x}" y2="5" stroke="${lineStrong}" stroke-width="1.4"/>`).join('')}
+      <text x="0" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">0</text>
+      <text x="60" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">1</text>
+      <text x="120" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">2</text>
+      <text x="180" y="-10" text-anchor="middle" font-family="'IBM Plex Mono', monospace" font-size="10" fill="#9aa7b8">5 km</text>
+    </g>
+  </svg>`;
+}
+function renderNovelance() {
+    return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('carte')" style="cursor:pointer">Carte</span> / Novelance</div>
+    <div class="novelance-page">
+      <div class="novelance-map-wrap">${novelanceMapSvg()}</div>
+      <div class="novelance-info" id="novelanceInfo">
+        <div class="novelance-info-hint">Clique sur un quartier de la carte pour en savoir plus.</div>
+      </div>
+    </div>
+  `;
+}
+function showNovelanceDistrict(id) {
+    const d = NOVELANCE_DISTRICTS.find(x => x.id === id);
+    const el = document.getElementById('novelanceInfo');
+    if (!d || !el)
+        return;
+    el.innerHTML = `
+    <div class="novelance-info-swatch" style="background:${d.color}"></div>
+    <div>
+      <div class="novelance-info-title">${esc(d.label)}</div>
+      <div class="novelance-info-desc">${esc(d.desc)}</div>
+    </div>
+  `;
+}
 /* ---------------- LIVRE D'HISTOIRE (page verrouillée par un code) ---------------- */
 const STORY_UNLOCK_CODE = '1234';
 let storyBookEntryId = null;
@@ -4549,6 +4722,9 @@ function render() {
     }
     else if (route === 'carte') {
         openMapOverlay();
+    }
+    else if (route === 'novelance') {
+        content.innerHTML = renderNovelance();
     }
     else if (route === 'halcyon') {
         dockHalcyonLogoImmediate();
