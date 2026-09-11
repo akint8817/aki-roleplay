@@ -1859,6 +1859,17 @@ h1,h2,h3,h4{
 }
 .chrono-tag-check input{ cursor:pointer; }
 
+.write-linked-checks{
+  display:flex; flex-wrap:wrap; gap:8px 16px; max-height:160px; overflow-y:auto;
+  border:1px solid var(--border); border-radius: var(--radius); padding:10px 12px;
+  background: var(--surface-2);
+}
+.write-linked-check{
+  display:flex; align-items:center; gap:6px; font-size:12.5px; color:var(--text-dim);
+  cursor:pointer; user-select:none;
+}
+.write-linked-check input{ cursor:pointer; }
+
 .chrono-tag-popover{
   --tagclr: #3ec9c0;
   position:absolute; z-index:400; width:260px;
@@ -1957,6 +1968,16 @@ h1,h2,h3,h4{
 .entry-gallery-item figcaption{
   font-size: 11.5px; color: var(--text-dim); margin-top:6px; line-height:1.5;
 }
+.entry-linked{ display:flex; gap:10px; margin-bottom:14px; }
+.entry-linked-avatar{
+  width:44px; height:44px; border-radius:50%; overflow:hidden; flex:none;
+  border:1px solid var(--border); background: var(--surface-2);
+  padding:0; cursor:pointer; display:flex; align-items:center; justify-content:center;
+  color: var(--text-dim); font-family:'IBM Plex Mono', monospace; font-size:14px;
+  transition: border-color .15s, transform .15s;
+}
+.entry-linked-avatar:hover{ border-color: var(--verdigris); transform: translateY(-2px); }
+.entry-linked-avatar img{ width:100%; height:100%; object-fit:cover; display:block; }
 .entry-specialite{
   border: 1px solid var(--border); border-radius: var(--radius);
   background: var(--surface-2); padding: 16px 18px;
@@ -3000,6 +3021,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=16"></script>
+<script src="dist/main.js?v=17"></script>
 </body>
 </html>

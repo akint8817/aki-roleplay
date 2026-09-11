@@ -26,6 +26,7 @@ interface Entry {
   specialite?: string[];
   factionLabel?: string;
   music?: string;
+  linkedIds?: string[];
 }
 
 interface EntryImage {
@@ -822,6 +823,9 @@ interface CustomEntry {
   // Lien vers un fichier audio déjà hébergé ailleurs (Discord, Dropbox,
   // SoundCloud...) — affiché comme une barre de lecture sur la fiche.
   music?: string;
+  // Ids d'autres personnages (écrits dans le code ou personnalisés) à
+  // afficher en photos de profil cliquables sur la fiche.
+  linkedIds?: string[];
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -889,6 +893,8 @@ function captureDraftFormState(): Record<string,string> {
   }
   const checkedTags = Array.from(document.querySelectorAll<HTMLInputElement>('.ceTagCheck:checked')).map(c=>c.value);
   if(checkedTags.length) state['__ceTags'] = checkedTags.join(',');
+  const checkedLinked = Array.from(document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck:checked')).map(c=>c.value);
+  if(checkedLinked.length) state['__wfLinked'] = checkedLinked.join(',');
   return state;
 }
 
@@ -902,6 +908,10 @@ function restoreDraftFormState(state: Record<string,string>): void {
   if(state['__ceTags']){
     const tags = state['__ceTags'].split(',');
     document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c=>{ c.checked = tags.includes(c.value); });
+  }
+  if(state['__wfLinked']){
+    const linked = state['__wfLinked'].split(',');
+    document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck').forEach(c=>{ c.checked = linked.includes(c.value); });
   }
   if(state['wfEditId']){
     const btn = document.getElementById('wfSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
@@ -935,11 +945,11 @@ function initFirestoreSync(): void {
       const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
       if(isOverride){
         if(data.deleted){ deletedOverrideIds.add(doc.id); return; }
-        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined };
+        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined };
         return;
       }
       const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined });
     });
     ENTRIES.length = 0;
     ENTRIES_BASE.forEach(base => {
@@ -995,6 +1005,7 @@ function customEntryToEntry(c: CustomEntry): Entry {
     faction: c.factionId,
     factionLabel: c.faction,
     music: c.music,
+    linkedIds: c.linkedIds,
     image: c.images && c.images[0] ? c.images[0].url : undefined,
     images: c.images,
   };
@@ -1028,6 +1039,7 @@ function mergeEntryOverride(base: Entry, ov: Partial<CustomEntry>): Entry {
     faction: ov.factionId || base.faction,
     factionLabel: ov.faction || base.factionLabel,
     music: ov.music || base.music,
+    linkedIds: ov.linkedIds && ov.linkedIds.length ? ov.linkedIds : base.linkedIds,
   };
 }
 
@@ -1158,6 +1170,15 @@ function renderEcriture(): string {
         <label>Musique (optionnel)</label>
         <input id="wfMusic" type="url" placeholder="Lien vers un fichier audio, ou lien SoundCloud">
         <div class="write-hint">Crée une barre de lecture sur la fiche. Un lien SoundCloud (page du morceau) fonctionne directement. Pour un autre lien, il doit pointer vers le fichier audio lui-même (pas vers une page) — par exemple un lien de fichier joint Discord.</div>
+      </div>
+      <div class="write-row">
+        <label>Personnages liés (optionnel)</label>
+        <div class="write-linked-checks" id="wfLinkedChecks">
+          ${ENTRIES.filter(x=>x.cat==='personnages').map(p=>`
+            <label class="write-linked-check"><input type="checkbox" value="${p.id}" class="wfLinkedCheck"> ${esc(p.name)}</label>
+          `).join('') || '<span class="write-hint">Aucun personnage écrit pour l\'instant.</span>'}
+        </div>
+        <div class="write-hint">Les personnages cochés s'affichent en photo de profil cliquable, en haut à gauche de la fiche.</div>
       </div>
       <div class="write-error" id="wfError"></div>
       <span class="btn btn-primary" id="wfSubmitBtn" onclick="submitCustomEntry()">Publier</span>
@@ -1291,6 +1312,7 @@ function submitCustomEntry(): void {
   const specialite = parseWriteBody(specialiteEl?.value || '');
   const capacite = (capaciteEl?.value || '').trim();
   const music = (musicEl?.value || '').trim();
+  const linkedIds = Array.from(document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck:checked')).map(c=>c.value);
   const body = parseWriteBody(bodyEl?.value || '');
   const images = wfImagesDraft.slice();
   const editId = editIdEl?.value || '';
@@ -1304,12 +1326,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, body, images,
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
       author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, body, images, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
   cancelEditCustomEntry();
@@ -1340,6 +1362,7 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
   (document.getElementById('wfMusic') as HTMLInputElement).value = entry.music || '';
+  document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck').forEach(c => { c.checked = (entry.linkedIds || []).includes(c.value); });
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = entry.body.map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfEditId') as HTMLInputElement).value = id;
   wfImagesDraft = (entry.images || []).map(img => ({ ...img }));
@@ -1363,6 +1386,7 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = '';
   (document.getElementById('wfCapacite') as HTMLInputElement).value = '';
   (document.getElementById('wfMusic') as HTMLInputElement).value = '';
+  document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck').forEach(c => { c.checked = false; });
   (document.getElementById('wfBody') as HTMLTextAreaElement).value = '';
   wfImagesDraft = [];
   refreshWfImagesList();
@@ -2246,6 +2270,7 @@ function renderEntry(id: string): string {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('cat-${e.cat}')" style="cursor:pointer">${c.label}</span> / ${esc(e.name)}</div>
     <div class="article">
       <div class="article-head">
+        ${entryLinkedCharactersHtml(e)}
         <span class="tag ${e.rarity}">${e.rarity==='rare'?'Notable':'Commun'} · ${c.label}</span>
         <h1>${esc(e.name)}</h1>
         <p style="color:var(--text-dim); font-size:13.5px; margin-top:4px;">${esc(e.tagline)}</p>
@@ -2274,6 +2299,21 @@ function renderEntry(id: string): string {
 function entrySpecialiteHtml(e: Entry): string {
   if(!e.specialite || !e.specialite.length) return '';
   return `<div class="entry-specialite"><div class="entry-side-heading">Capacité</div>${renderRichBody(e.specialite)}</div>`;
+}
+
+// Photos de profil cliquables des personnages liés à cette fiche, affichées
+// en haut à gauche, avant le reste du contenu.
+function entryLinkedCharactersHtml(e: Entry): string {
+  if(!e.linkedIds || !e.linkedIds.length) return '';
+  const linked = e.linkedIds.map(id => findEntry(id)).filter((p): p is Entry => !!p);
+  if(!linked.length) return '';
+  return `<div class="entry-linked">
+    ${linked.map(p => `
+      <button type="button" class="entry-linked-avatar" onclick="navigate('entry-${p.id}')" title="${esc(p.name)}">
+        ${p.image ? `<img src="${encodeURI(p.image)}" alt="${esc(p.name)}" style="${p.imagePos ? `object-position:${p.imagePos}` : ''}">` : `<span>${esc(p.name.charAt(0))}</span>`}
+      </button>
+    `).join('')}
+  </div>`;
 }
 
 // SoundCloud ne fournit pas de lien de fichier audio direct (juste une page
@@ -2556,6 +2596,7 @@ function renderPersonnageEntry(e: Entry): string {
         <button type="button" class="op-rail-all" onclick="navigate('cat-personnages')" title="Tous les personnages">☰</button>
       </div>
       <div class="op-main">
+        ${entryLinkedCharactersHtml(e)}
         <div class="op-hero" style="--fclr:${fclr}">
           <div class="op-hero-bgtext">${esc(bgWord)}</div>
           <div class="op-hero-blob"></div>
