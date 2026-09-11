@@ -671,7 +671,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -726,11 +726,11 @@ function initFirestoreSync() {
             const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
             if (isOverride) {
                 if (data.deleted) { deletedOverrideIds.add(doc.id); return; }
-                overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined };
+                overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined, oxiriGene: data.oxiriGene || undefined };
                 return;
             }
             const images = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined });
+            list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined, oxiriGene: data.oxiriGene || undefined });
         });
         ENTRIES.length = 0;
         ENTRIES_BASE.forEach(base => {
@@ -775,6 +775,7 @@ function getCustomEntriesRaw() {
 }
 function customEntryToEntry(c) {
     const info = {};
+    if (c.oxiriGene) info["Gène d'Oxiri lié"] = c.oxiriGene;
     if (c.capacite) info['Spécificité'] = c.capacite;
     info['Auteur'] = capitalize(c.author || 'aki');
     return {
@@ -797,6 +798,7 @@ function mergeEntryOverride(base, ov) {
         delete info['Spécificité'];
         info['Spécificité'] = ov.capacite;
     }
+    if (ov.oxiriGene) info["Gène d'Oxiri lié"] = ov.oxiriGene;
     return {
         ...base,
         cat: ov.cat || base.cat,
@@ -910,6 +912,11 @@ function renderEcriture() {
         </select>
         <input id="wfFaction" type="text" placeholder="Ex : Eidolon…" style="margin-top:8px; display:none;">
         <div class="write-hint">En choisissant une faction existante, le personnage apparaît automatiquement dans son roster (page Personnages). "Autre" affiche juste un nom libre, sans rattachement.</div>
+      </div>
+      <div class="write-row">
+        <label>Gène d'Oxiri lié (optionnel)</label>
+        <input id="wfOxiriGene" type="text" placeholder="Ex : Kitzo, Apoleia…">
+        <div class="write-hint">S'affiche comme ligne d'info "Gène d'Oxiri lié" sur la fiche, comme pour Alice ou Sariah.</div>
       </div>
       <div class="write-row">
         <label>Spécificité (optionnel)</label>
@@ -1052,6 +1059,7 @@ function submitCustomEntry() {
     const quoteEl = document.getElementById('wfQuote');
     const factionSelectEl = document.getElementById('wfFactionSelect');
     const factionEl = document.getElementById('wfFaction');
+    const oxiriGeneEl = document.getElementById('wfOxiriGene');
     const specialiteEl = document.getElementById('wfSpecialite');
     const capaciteEl = document.getElementById('wfCapacite');
     const musicEl = document.getElementById('wfMusic');
@@ -1065,6 +1073,7 @@ function submitCustomEntry() {
     const factionSelect = factionSelectEl?.value || '';
     const factionId = factionSelect && factionSelect !== '__custom' ? factionSelect : '';
     const faction = factionSelect === '__custom' ? (factionEl?.value || '').trim() : '';
+    const oxiriGene = (oxiriGeneEl?.value || '').trim();
     const specialite = parseWriteBody(specialiteEl?.value || '');
     const capacite = (capaciteEl?.value || '').trim();
     const music = (musicEl?.value || '').trim();
@@ -1082,12 +1091,12 @@ function submitCustomEntry() {
     if (editId) {
         const existing = customEntriesCache.find(c => c.id === editId);
         db.collection('entries').doc(editId).set({
-            cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
+            cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
             author: existing ? existing.author : (getCurrentUser() || 'aki'),
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     } else {
         db.collection('entries').add({
-            cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images, author: getCurrentUser() || 'aki',
+            cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images, author: getCurrentUser() || 'aki',
         }).catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
     }
     cancelEditCustomEntry();
@@ -1110,6 +1119,7 @@ function editCustomEntry(id) {
     document.getElementById('wfFactionSelect').value = entry.faction || (entry.factionLabel ? '__custom' : '');
     document.getElementById('wfFaction').value = entry.factionLabel || '';
     onWfFactionSelectChange();
+    document.getElementById('wfOxiriGene').value = entry.info["Gène d'Oxiri lié"] || '';
     document.getElementById('wfSpecialite').value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
     document.getElementById('wfCapacite').value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
     document.getElementById('wfMusic').value = entry.music || '';
@@ -1133,6 +1143,7 @@ function cancelEditCustomEntry() {
     document.getElementById('wfFactionSelect').value = '';
     document.getElementById('wfFaction').value = '';
     onWfFactionSelectChange();
+    document.getElementById('wfOxiriGene').value = '';
     document.getElementById('wfSpecialite').value = '';
     document.getElementById('wfCapacite').value = '';
     document.getElementById('wfMusic').value = '';

@@ -826,6 +826,10 @@ interface CustomEntry {
   // Ids d'autres personnages (écrits dans le code ou personnalisés) à
   // afficher en photos de profil cliquables sur la fiche.
   linkedIds?: string[];
+  // Nom du gène d'Oxiri lié (ex : "Kitzo" pour Alice) — affiché comme ligne
+  // d'info "Gène d'Oxiri lié" sur la fiche, comme pour les hybrides déjà
+  // écrits dans le code.
+  oxiriGene?: string;
 }
 
 const AUTH_KEY = 'akiAuthUser';
@@ -883,7 +887,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -945,11 +949,11 @@ function initFirestoreSync(): void {
       const isOverride = ENTRIES_BASE.some(e => e.id === doc.id);
       if(isOverride){
         if(data.deleted){ deletedOverrideIds.add(doc.id); return; }
-        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined };
+        overrides[doc.id] = { cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], images: data.images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined, oxiriGene: data.oxiriGene || undefined };
         return;
       }
       const images: EntryImage[] = data.images || (data.image ? [{ url: data.image, caption: '' }] : []);
-      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined });
+      list.push({ id: doc.id, cat: data.cat, name: data.name, tagline: data.tagline, quote: data.quote || undefined, body: data.body || [], author: data.author || 'aki', images, specialite, capacite: data.capacite || undefined, faction: data.faction || undefined, factionId: data.factionId || undefined, music: data.music || undefined, linkedIds: data.linkedIds || undefined, oxiriGene: data.oxiriGene || undefined });
     });
     ENTRIES.length = 0;
     ENTRIES_BASE.forEach(base => {
@@ -996,6 +1000,7 @@ function getCustomEntriesRaw(): CustomEntry[] {
 
 function customEntryToEntry(c: CustomEntry): Entry {
   const info: Record<string,string> = {};
+  if(c.oxiriGene) info["Gène d'Oxiri lié"] = c.oxiriGene;
   if(c.capacite) info['Spécificité'] = c.capacite;
   info['Auteur'] = capitalize(c.author || 'aki');
   return {
@@ -1025,6 +1030,7 @@ function mergeEntryOverride(base: Entry, ov: Partial<CustomEntry>): Entry {
     delete info['Spécificité'];
     info['Spécificité'] = ov.capacite;
   }
+  if(ov.oxiriGene) info["Gène d'Oxiri lié"] = ov.oxiriGene;
   return {
     ...base,
     cat: ov.cat || base.cat,
@@ -1145,6 +1151,11 @@ function renderEcriture(): string {
         </select>
         <input id="wfFaction" type="text" placeholder="Ex : Eidolon…" style="margin-top:8px; display:none;">
         <div class="write-hint">En choisissant une faction existante, le personnage apparaît automatiquement dans son roster (page Personnages). "Autre" affiche juste un nom libre, sans rattachement.</div>
+      </div>
+      <div class="write-row">
+        <label>Gène d'Oxiri lié (optionnel)</label>
+        <input id="wfOxiriGene" type="text" placeholder="Ex : Kitzo, Apoleia…">
+        <div class="write-hint">S'affiche comme ligne d'info "Gène d'Oxiri lié" sur la fiche, comme pour Alice ou Sariah.</div>
       </div>
       <div class="write-row">
         <label>Spécificité (optionnel)</label>
@@ -1296,6 +1307,7 @@ function submitCustomEntry(): void {
   const quoteEl = document.getElementById('wfQuote') as HTMLInputElement | null;
   const factionSelectEl = document.getElementById('wfFactionSelect') as HTMLSelectElement | null;
   const factionEl = document.getElementById('wfFaction') as HTMLInputElement | null;
+  const oxiriGeneEl = document.getElementById('wfOxiriGene') as HTMLInputElement | null;
   const specialiteEl = document.getElementById('wfSpecialite') as HTMLTextAreaElement | null;
   const capaciteEl = document.getElementById('wfCapacite') as HTMLInputElement | null;
   const musicEl = document.getElementById('wfMusic') as HTMLInputElement | null;
@@ -1309,6 +1321,7 @@ function submitCustomEntry(): void {
   const factionSelect = factionSelectEl?.value || '';
   const factionId = factionSelect && factionSelect !== '__custom' ? factionSelect : '';
   const faction = factionSelect === '__custom' ? (factionEl?.value || '').trim() : '';
+  const oxiriGene = (oxiriGeneEl?.value || '').trim();
   const specialite = parseWriteBody(specialiteEl?.value || '');
   const capacite = (capaciteEl?.value || '').trim();
   const music = (musicEl?.value || '').trim();
@@ -1326,12 +1339,12 @@ function submitCustomEntry(): void {
   if(editId){
     const existing = customEntriesCache.find(c=>c.id===editId);
     db.collection('entries').doc(editId).set({
-      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
       author: existing ? existing.author : (getCurrentUser() || 'aki'),
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   } else {
     db.collection('entries').add({
-      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images, author: getCurrentUser() || 'aki',
+      cat, name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null, oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null, music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images, author: getCurrentUser() || 'aki',
     }).catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
   }
   cancelEditCustomEntry();
@@ -1359,6 +1372,7 @@ function editCustomEntry(id: string): void {
   (document.getElementById('wfFactionSelect') as HTMLSelectElement).value = entry.faction || (entry.factionLabel ? '__custom' : '');
   (document.getElementById('wfFaction') as HTMLInputElement).value = entry.factionLabel || '';
   onWfFactionSelectChange();
+  (document.getElementById('wfOxiriGene') as HTMLInputElement).value = entry.info["Gène d'Oxiri lié"] || '';
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = (entry.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
   (document.getElementById('wfCapacite') as HTMLInputElement).value = entry.info['Spécificité'] || entry.info['Capacité'] || '';
   (document.getElementById('wfMusic') as HTMLInputElement).value = entry.music || '';
@@ -1383,6 +1397,7 @@ function cancelEditCustomEntry(): void {
   (document.getElementById('wfFactionSelect') as HTMLSelectElement).value = '';
   (document.getElementById('wfFaction') as HTMLInputElement).value = '';
   onWfFactionSelectChange();
+  (document.getElementById('wfOxiriGene') as HTMLInputElement).value = '';
   (document.getElementById('wfSpecialite') as HTMLTextAreaElement).value = '';
   (document.getElementById('wfCapacite') as HTMLInputElement).value = '';
   (document.getElementById('wfMusic') as HTMLInputElement).value = '';
