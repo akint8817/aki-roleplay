@@ -1974,11 +1974,11 @@ function renderEntry(id) {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('cat-${e.cat}')" style="cursor:pointer">${c.label}</span> / ${esc(e.name)}</div>
     <div class="article">
       <div class="article-head">
-        ${entryLinkedCharactersHtml(e)}
         <span class="tag ${e.rarity}">${e.rarity === 'rare' ? 'Notable' : 'Commun'} · ${c.label}</span>
         <h1>${esc(e.name)}</h1>
         <p style="color:var(--text-dim); font-size:13.5px; margin-top:4px;">${esc(e.tagline)}</p>
         ${e.quote ? `<p class="entry-quote">${esc(e.quote)}</p>` : ''}
+        ${entryLinkedCharactersHtml(e)}
         ${entryMusicHtml(e)}
         ${entryOwnerActionsHtml(e)}
       </div>
@@ -2016,12 +2016,15 @@ function entryLinkedCharactersHtml(e) {
     if (!e.linkedIds || !e.linkedIds.length) return '';
     const linked = e.linkedIds.map(id => findEntry(id)).filter((p) => !!p);
     if (!linked.length) return '';
-    return `<div class="entry-linked">
-    ${linked.map(p => `
-      <button type="button" class="entry-linked-avatar" onclick="navigate('entry-${p.id}')" title="${esc(p.name)}">
-        ${p.image ? `<img src="${encodeURI(p.image)}" alt="${esc(p.name)}" style="${p.imagePos ? `object-position:${p.imagePos}` : ''}">` : `<span>${esc(p.name.charAt(0))}</span>`}
-      </button>
-    `).join('')}
+    return `<div class="entry-linked-wrap">
+    <div class="entry-side-heading">Personnage lié</div>
+    <div class="entry-linked">
+      ${linked.map(p => `
+        <button type="button" class="entry-linked-avatar" onclick="navigate('entry-${p.id}')" title="${esc(p.name)}">
+          ${p.image ? `<img src="${encodeURI(p.image)}" alt="${esc(p.name)}" style="${p.imagePos ? `object-position:${p.imagePos}` : ''}">` : `<span>${esc(p.name.charAt(0))}</span>`}
+        </button>
+      `).join('')}
+    </div>
   </div>`;
 }
 function entryMusicHtml(e) {
@@ -2235,7 +2238,6 @@ function renderPersonnageEntry(e) {
         <button type="button" class="op-rail-all" onclick="navigate('cat-personnages')" title="Tous les personnages">☰</button>
       </div>
       <div class="op-main">
-        ${entryLinkedCharactersHtml(e)}
         <div class="op-hero" style="--fclr:${fclr}">
           <div class="op-hero-bgtext">${esc(bgWord)}</div>
           <div class="op-hero-blob"></div>
@@ -2261,6 +2263,7 @@ function renderPersonnageEntry(e) {
           ${capaciteFact ? `<div class="op-fact"><span class="op-fact-k">${esc(capaciteFact[0])}</span><span class="op-fact-v">${esc(capaciteFact[1])}</span></div>` : ''}
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
+        ${entryLinkedCharactersHtml(e)}
         ${entryMusicHtml(e)}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
         ${entryOwnerActionsHtml(e)}
