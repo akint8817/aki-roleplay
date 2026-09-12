@@ -1881,10 +1881,6 @@ function renderHome() {
     <div class="featured-grid">
       ${featuredGridHtml(featured)}
     </div>
-
-    <div class="editnote">
-      💡 Ceci est un site de départ. Remplace le nom du jeu, les catégories dans <code>CATS</code> et les fiches dans <code>ENTRIES</code> (en haut du fichier) par ton propre contenu.
-    </div>
   `;
 }
 function featuredGridHtml(list) {
