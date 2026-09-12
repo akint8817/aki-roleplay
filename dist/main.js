@@ -687,7 +687,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfDanger', 'sfBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -846,7 +846,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, title: data.title, body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
+            list.push({ id: doc.id, title: data.title, danger: data.danger || '', body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
         });
         secretFilesCache = list;
         const draft = captureDraftFormState();
@@ -1099,6 +1099,11 @@ function renderEcriture() {
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
+      <div class="write-row">
+        <label>Danger / classification (courte)</label>
+        <input id="sfDanger" type="text" placeholder="Ex : Catastrophique, Extrême, Élevée, Inconnue…">
+        <div class="write-hint">C'est tout ce qui s'affiche sur la petite vignette flottante de la fuite de données (avec le titre) — le texte complet ci-dessous n'apparaît que si on clique dessus pour l'ouvrir.</div>
+      </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="sfBody" rows="5" placeholder="Écris le contenu du fichier…"></textarea>
@@ -1701,19 +1706,22 @@ function refreshSecretFileImagePreview() {
 }
 function addSecretFile() {
     const titleEl = document.getElementById('sfTitle');
+    const dangerEl = document.getElementById('sfDanger');
     const bodyEl = document.getElementById('sfBody');
     const errEl = document.getElementById('sfError');
     const db = getFirestoreDb();
     if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
     const title = (titleEl?.value || '').trim();
+    const danger = (dangerEl?.value || '').trim();
     const body = parseWriteBody(bodyEl?.value || '');
     if (!title) { if (errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
     if (!body.length) { if (errEl) errEl.textContent = 'Écris au moins une ligne de texte.'; return; }
     if (errEl) errEl.textContent = '';
     const image = sfImageDraft;
-    db.collection('secretFiles').add({ title, body, image, author: getCurrentUser() || 'aki' })
+    db.collection('secretFiles').add({ title, danger, body, image, author: getCurrentUser() || 'aki' })
         .then(() => {
             if (titleEl) titleEl.value = '';
+            if (dangerEl) dangerEl.value = '';
             if (bodyEl) bodyEl.value = '';
             sfImageDraft = '';
             refreshSecretFileImagePreview();
@@ -4171,20 +4179,6 @@ function submitCorruptTermCommand() {
         appendCorruptTermLine('[ERREUR] COMMANDE INCONNUE', true);
     }
 }
-function firstPlainLine(body) {
-    let fallback = '';
-    for (const raw of body) {
-        const line = raw.trim();
-        if (!line || line.startsWith(LOCK_SENTINEL)) continue;
-        if (line.startsWith('#')) {
-            if (!fallback) fallback = line.replace(/^#+\s*/, '');
-            continue;
-        }
-        const stripped = line.replace(/^[-*]\s*/, '').replace(/^>\s*/, '').replace(/\*\*/g, '');
-        if (stripped) return stripped;
-    }
-    return fallback;
-}
 function buildLeakVignettes() {
     const chars = ENTRIES.filter(e => e.cat === 'personnages').map(e => ({
         category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline, image: e.image,
@@ -4200,7 +4194,7 @@ function buildLeakVignettes() {
         { category: 'EXPÉRIENCE', title: 'ARCHIVE MÉDICALE #204', line: 'Accès restreint — cause du décès inconnue' },
     ];
     const secrets = secretFilesCache.map(s => ({
-        category: 'FICHIER SECRET', title: s.title, line: firstPlainLine(s.body), image: s.image, body: s.body,
+        category: 'FICHIER SECRET', title: s.title, line: s.danger || 'Classification inconnue', image: s.image, body: s.body,
     }));
     return [...chars, ...weapons, ...experiments, ...secrets];
 }

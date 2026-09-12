@@ -880,7 +880,7 @@ let spjImageDraft: Record<string, string> = {};
 // fiche publique, ils alimentent seulement le tirage aléatoire de la fuite
 // de données du Fichier Zéro (voir buildLeakVignettes). Chacun n'est géré
 // (visible dans la liste, supprimable) que par son auteur — voir renderEcriture.
-interface SecretFile { id: string; title: string; body: string[]; image?: string; author: string; }
+interface SecretFile { id: string; title: string; danger: string; body: string[]; image?: string; author: string; }
 let secretFilesCache: SecretFile[] = [];
 // Image jointe au fichier secret en cours d'écriture (voir addSecretFile) —
 // même principe que la bannière/le logo d'un dossier d'escadron.
@@ -931,7 +931,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1100,7 +1100,7 @@ function initFirestoreSync(): void {
     const list: SecretFile[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, title: data.title, body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
+      list.push({ id: doc.id, title: data.title, danger: data.danger || '', body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
     });
     secretFilesCache = list;
     const draft = captureDraftFormState();
@@ -1369,6 +1369,11 @@ function renderEcriture(): string {
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
+      <div class="write-row">
+        <label>Danger / classification (courte)</label>
+        <input id="sfDanger" type="text" placeholder="Ex : Catastrophique, Extrême, Élevée, Inconnue…">
+        <div class="write-hint">C'est tout ce qui s'affiche sur la petite vignette flottante de la fuite de données (avec le titre) — le texte complet ci-dessous n'apparaît que si on clique dessus pour l'ouvrir.</div>
+      </div>
       <div class="write-row">
         <label>Texte (un paragraphe par bloc de lignes)</label>
         <textarea id="sfBody" rows="5" placeholder="Écris le contenu du fichier…"></textarea>
@@ -2076,19 +2081,22 @@ function refreshSecretFileImagePreview(): void {
 // piochés aléatoirement dans la fuite de données du Fichier Zéro.
 function addSecretFile(): void {
   const titleEl = document.getElementById('sfTitle') as HTMLInputElement | null;
+  const dangerEl = document.getElementById('sfDanger') as HTMLInputElement | null;
   const bodyEl = document.getElementById('sfBody') as HTMLTextAreaElement | null;
   const errEl = document.getElementById('sfError');
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const title = (titleEl?.value || '').trim();
+  const danger = (dangerEl?.value || '').trim();
   const body = parseWriteBody(bodyEl?.value || '');
   if(!title){ if(errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
   if(!body.length){ if(errEl) errEl.textContent = 'Écris au moins une ligne de texte.'; return; }
   if(errEl) errEl.textContent = '';
   const image = sfImageDraft;
-  db.collection('secretFiles').add({ title, body, image, author: getCurrentUser() || 'aki' })
+  db.collection('secretFiles').add({ title, danger, body, image, author: getCurrentUser() || 'aki' })
     .then(()=>{
       if(titleEl) titleEl.value = '';
+      if(dangerEl) dangerEl.value = '';
       if(bodyEl) bodyEl.value = '';
       sfImageDraft = '';
       refreshSecretFileImagePreview();
@@ -4751,25 +4759,6 @@ function submitCorruptTermCommand(): void {
 
 interface LeakVignette { category: string; title: string; line: string; image?: string; body?: string[]; }
 
-// Résume un corps de fichier secret (paragraphes) en une courte ligne
-// d'aperçu pour la vignette flottante — première ligne de texte non vide,
-// débarrassée de sa syntaxe de mise en forme (#, -, >, **), en ignorant les
-// blocs d'archive verrouillée qui n'ont rien à montrer sans le code.
-function firstPlainLine(body: string[]): string {
-  let fallback = '';
-  for(const raw of body){
-    const line = raw.trim();
-    if(!line || line.startsWith(LOCK_SENTINEL)) continue;
-    if(line.startsWith('#')){
-      if(!fallback) fallback = line.replace(/^#+\s*/, '');
-      continue;
-    }
-    const stripped = line.replace(/^[-*]\s*/, '').replace(/^>\s*/, '').replace(/\*\*/g, '');
-    if(stripped) return stripped;
-  }
-  return fallback;
-}
-
 function buildLeakVignettes(): LeakVignette[] {
   const chars: LeakVignette[] = ENTRIES.filter(e=>e.cat==='personnages').map(e=>({
     category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline, image: e.image,
@@ -4785,7 +4774,7 @@ function buildLeakVignettes(): LeakVignette[] {
     { category:'EXPÉRIENCE', title:'ARCHIVE MÉDICALE #204', line:'Accès restreint — cause du décès inconnue' },
   ];
   const secrets: LeakVignette[] = secretFilesCache.map(s=>({
-    category: 'FICHIER SECRET', title: s.title, line: firstPlainLine(s.body), image: s.image, body: s.body,
+    category: 'FICHIER SECRET', title: s.title, line: s.danger || 'Classification inconnue', image: s.image, body: s.body,
   }));
   return [...chars, ...weapons, ...experiments, ...secrets];
 }
