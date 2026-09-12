@@ -642,12 +642,29 @@ h1,h2,h3,h4{
 }
 .novelance-map-wrap:active{ cursor:grabbing; }
 .novelance-svg{
-  position:absolute; top:0; left:0; width:1500px; height:950px; display:block;
+  position:absolute; top:0; left:0; width:2600px; height:1500px; display:block;
   transform-origin:0 0; will-change:transform;
 }
 .novelance-district{ transition: opacity .15s ease; }
 .novelance-district:hover{ opacity:0.82; }
+.novelance-building{
+  opacity:0.76; cursor:pointer;
+  transition: opacity .15s ease, filter .15s ease;
+}
+.novelance-building polygon{ pointer-events:auto; }
+.novelance-building:hover{ opacity:1; filter: brightness(1.4) drop-shadow(0 0 5px rgba(255,255,255,0.35)); }
+.novelance-building.novelance-lit{ opacity:1; filter: brightness(1.6) drop-shadow(0 0 8px rgba(255,255,255,0.6)); }
 .novelance-hud{ position:absolute; inset:0; pointer-events:none; }
+.novelance-hud-rotate{
+  position:absolute; bottom:14px; left:50%; transform:translateX(-50%);
+  display:flex; gap:8px; pointer-events:auto;
+}
+.novelance-hud-rotate-btn{
+  width:32px; height:32px; border-radius:50%; border:1px solid rgba(91,230,238,0.4);
+  background:rgba(13,20,32,0.88); color:#c7cfdb; font-size:15px; cursor:pointer;
+  display:flex; align-items:center; justify-content:center; transition: border-color .15s, color .15s;
+}
+.novelance-hud-rotate-btn:hover{ border-color:#5be6ee; color:#5be6ee; }
 .novelance-hud-title{ position:absolute; top:20px; left:20px; display:flex; align-items:center; gap:14px; }
 .novelance-hud-name{ font-family:'IBM Plex Mono', monospace; font-size:22px; letter-spacing:5px; color:#e4e8ef; }
 .novelance-hud-tagline{ font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:2.5px; color:#8b95a6; margin-top:2px; }
@@ -3077,6 +3094,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=22"></script>
+<script src="dist/main.js?v=23"></script>
 </body>
 </html>
