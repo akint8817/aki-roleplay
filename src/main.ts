@@ -869,12 +869,18 @@ let halcyonSquadMembersCache: HalcyonRosterLink[] = [];
 let halcyonSquadDocsCache: (Partial<Squad> & { id: string })[] = [];
 // Projets affichés en cartes sur le dossier d'un escadron (voir
 // renderSquadDossier) — groupId est l'id de l'escadron concerné.
-interface SquadProject { id: string; groupId: string; title: string; desc: string; }
+interface SquadProject { id: string; groupId: string; title: string; desc: string; image?: string; }
 let halcyonSquadProjectsCache: SquadProject[] = [];
+// Image d'un projet (voir renderSquadDossier) : soit lors de sa création
+// (brouillon tenu par escadron le temps du formulaire), soit modifiée
+// directement sur un projet déjà créé (mise à jour immédiate de son doc).
+const PROJECT_IMAGE_BUDGET_BYTES = 700 * 1024;
+let spjImageDraft: Record<string, string> = {};
 // "Fichiers secrets" écrits depuis l'espace d'écriture : ils n'ont pas de
 // fiche publique, ils alimentent seulement le tirage aléatoire de la fuite
-// de données du Fichier Zéro (voir buildLeakVignettes).
-interface SecretFile { id: string; title: string; line: string; image?: string; }
+// de données du Fichier Zéro (voir buildLeakVignettes). Chacun n'est géré
+// (visible dans la liste, supprimable) que par son auteur — voir renderEcriture.
+interface SecretFile { id: string; title: string; body: string[]; image?: string; author: string; }
 let secretFilesCache: SecretFile[] = [];
 // Image jointe au fichier secret en cours d'écriture (voir addSecretFile) —
 // même principe que la bannière/le logo d'un dossier d'escadron.
@@ -925,7 +931,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfLine'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1082,7 +1088,7 @@ function initFirestoreSync(): void {
     const list: SquadProject[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '' });
+      list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '', image: data.image || undefined });
     });
     halcyonSquadProjectsCache = list;
     const draft = captureDraftFormState();
@@ -1094,7 +1100,7 @@ function initFirestoreSync(): void {
     const list: SecretFile[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, title: data.title, line: data.line || '', image: data.image || undefined });
+      list.push({ id: doc.id, title: data.title, body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
     });
     secretFilesCache = list;
     const draft = captureDraftFormState();
@@ -1358,11 +1364,16 @@ function renderEcriture(): string {
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
       Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
       Fichier Zéro (l'archive corrompue, une fois le terminal piraté), mélangé aux personnages et
-      armes déjà écrits.
+      armes déjà écrits. Seuls les fichiers que tu as toi-même écrits apparaissent dans la liste
+      ci-dessous.
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
-      <div class="write-row"><label>Ligne (courte)</label><input id="sfLine" type="text" placeholder="Ex : Disparu après la phase 2"></div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par bloc de lignes)</label>
+        <textarea id="sfBody" rows="5" placeholder="Écris le contenu du fichier…"></textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras, <code>[code]texte]</code> pour une archive verrouillée.</div>
+      </div>
       <div class="write-row">
         <label>Image (optionnel, 700 Ko max)</label>
         <div class="write-images-list" id="sfImagePreview">${secretFileImagePreviewHtml()}</div>
@@ -1372,11 +1383,14 @@ function renderEcriture(): string {
       <span class="btn btn-primary" onclick="addSecretFile()">Ajouter le fichier</span>
     </div>
     <div class="account-list">
-      ${secretFilesCache.length ? secretFilesCache.map(s=>`
+      ${(() => {
+        const mine = secretFilesCache.filter(s => s.author === getCurrentUser());
+        return mine.length ? mine.map(s=>`
         <div class="account-list-row">
           <span>${esc(s.title)}</span>
           <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement ce fichier ?')){ deleteSecretFile('${s.id}'); }">Supprimer</span>
-        </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`}
+        </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`;
+      })()}
     </div>
   `;
 }
@@ -1458,6 +1472,68 @@ function squadImagePreviewHtml(field: 'image' | 'logo'): string {
   return val
     ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeSquadDossierImage('${field}')">Retirer</span></div>`
     : '';
+}
+
+// Image du projet en cours de création (voir addSquadProject) — un
+// brouillon par escadron, tenu tant que le formulaire d'ajout est ouvert.
+function handleNewSquadProjectImage(squadId: string, input: HTMLInputElement): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(file.size > PROJECT_IMAGE_BUDGET_BYTES){
+    alert('Image trop lourde : 700 Ko maximum.');
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    spjImageDraft[squadId] = reader.result as string;
+    input.value = '';
+    refreshNewSquadProjectImagePreview(squadId);
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeNewSquadProjectImage(squadId: string): void {
+  delete spjImageDraft[squadId];
+  refreshNewSquadProjectImagePreview(squadId);
+}
+
+function newSquadProjectImagePreviewHtml(squadId: string): string {
+  const val = spjImageDraft[squadId];
+  return val
+    ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeNewSquadProjectImage('${squadId}')">Retirer</span></div>`
+    : '';
+}
+
+function refreshNewSquadProjectImagePreview(squadId: string): void {
+  const wrap = document.getElementById('spjImagePreview-' + squadId);
+  if(wrap) wrap.innerHTML = newSquadProjectImagePreviewHtml(squadId);
+}
+
+// Modifie l'image d'un projet déjà créé — mise à jour immédiate du document
+// (pas de mode édition dédié pour les projets, juste ajout/suppression).
+function handleSquadProjectImage(id: string, input: HTMLInputElement): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  if(file.size > PROJECT_IMAGE_BUDGET_BYTES){
+    alert('Image trop lourde : 700 Ko maximum.');
+    input.value = '';
+    return;
+  }
+  const db = getFirestoreDb();
+  if(!db) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    db.collection('halcyonSquadProjects').doc(id).update({ image: reader.result as string });
+    input.value = '';
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeSquadProjectImage(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('halcyonSquadProjects').doc(id).update({ image: null });
 }
 
 function refreshSquadDossierImagePreviews(): void {
@@ -1943,7 +2019,14 @@ function addSquadProject(squadId: string): void {
   const desc = (descEl?.value || '').trim();
   if(!title){ if(errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
   if(errEl) errEl.textContent = '';
-  db.collection('halcyonSquadProjects').add({ squadId, title, desc })
+  const image = spjImageDraft[squadId] || null;
+  db.collection('halcyonSquadProjects').add({ squadId, title, desc, image })
+    .then(()=>{
+      if(titleEl) titleEl.value = '';
+      if(descEl) descEl.value = '';
+      delete spjImageDraft[squadId];
+      refreshNewSquadProjectImagePreview(squadId);
+    })
     .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 
@@ -1993,19 +2076,20 @@ function refreshSecretFileImagePreview(): void {
 // piochés aléatoirement dans la fuite de données du Fichier Zéro.
 function addSecretFile(): void {
   const titleEl = document.getElementById('sfTitle') as HTMLInputElement | null;
-  const lineEl = document.getElementById('sfLine') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('sfBody') as HTMLTextAreaElement | null;
   const errEl = document.getElementById('sfError');
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const title = (titleEl?.value || '').trim();
-  const line = (lineEl?.value || '').trim();
+  const body = parseWriteBody(bodyEl?.value || '');
   if(!title){ if(errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
+  if(!body.length){ if(errEl) errEl.textContent = 'Écris au moins une ligne de texte.'; return; }
   if(errEl) errEl.textContent = '';
   const image = sfImageDraft;
-  db.collection('secretFiles').add({ title, line, image })
+  db.collection('secretFiles').add({ title, body, image, author: getCurrentUser() || 'aki' })
     .then(()=>{
       if(titleEl) titleEl.value = '';
-      if(lineEl) lineEl.value = '';
+      if(bodyEl) bodyEl.value = '';
       sfImageDraft = '';
       refreshSecretFileImagePreview();
     })
@@ -4166,13 +4250,19 @@ function renderSquadDossier(id: string): string {
             <div class="project-doc-head">
               <div class="project-doc-photo">
                 <div class="project-doc-photo-clip"></div>
-                <div class="project-doc-photo-icon">◈</div>
+                ${p.image ? `<img class="project-doc-photo-img" src="${p.image}" alt="">` : `<div class="project-doc-photo-icon">◈</div>`}
               </div>
               <div class="project-doc-meta">
                 <span class="project-doc-num">N° ${pCode}</span>
                 <div class="project-doc-title">${esc(p.title)}</div>
               </div>
             </div>
+            ${editing ? `
+            <div class="project-doc-image-edit">
+              <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
+              <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
+              ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+            </div>` : ''}
             <div class="project-doc-fields">
               <div><b>Projet</b>${esc(p.title)}</div>
               <div><b>Département</b>${esc(squad.category || squad.name)}</div>
@@ -4192,6 +4282,11 @@ function renderSquadDossier(id: string): string {
       <div class="write-form halcyon-edit-panel" style="max-width:480px;">
         <div class="write-row"><label>Titre du projet</label><input id="spjTitle-${id}" type="text" placeholder="Ex : Protocole Aube Grise"></div>
         <div class="write-row"><label>Description</label><textarea id="spjDesc-${id}" rows="3" placeholder="Description courte du projet…"></textarea></div>
+        <div class="write-row">
+          <label>Image (optionnel, 700 Ko max)</label>
+          <div class="write-images-list" id="spjImagePreview-${id}">${newSquadProjectImagePreviewHtml(id)}</div>
+          <input id="spjImageFile-${id}" type="file" accept="image/*" onchange="handleNewSquadProjectImage('${id}', this)">
+        </div>
         <div class="write-error" id="spjError-${id}"></div>
         <span class="btn btn-primary" onclick="addSquadProject('${id}')">+ Ajouter un projet</span>
       </div>` : ''}
@@ -4654,7 +4749,26 @@ function submitCorruptTermCommand(): void {
   }
 }
 
-interface LeakVignette { category: string; title: string; line: string; image?: string; }
+interface LeakVignette { category: string; title: string; line: string; image?: string; body?: string[]; }
+
+// Résume un corps de fichier secret (paragraphes) en une courte ligne
+// d'aperçu pour la vignette flottante — première ligne de texte non vide,
+// débarrassée de sa syntaxe de mise en forme (#, -, >, **), en ignorant les
+// blocs d'archive verrouillée qui n'ont rien à montrer sans le code.
+function firstPlainLine(body: string[]): string {
+  let fallback = '';
+  for(const raw of body){
+    const line = raw.trim();
+    if(!line || line.startsWith(LOCK_SENTINEL)) continue;
+    if(line.startsWith('#')){
+      if(!fallback) fallback = line.replace(/^#+\s*/, '');
+      continue;
+    }
+    const stripped = line.replace(/^[-*]\s*/, '').replace(/^>\s*/, '').replace(/\*\*/g, '');
+    if(stripped) return stripped;
+  }
+  return fallback;
+}
 
 function buildLeakVignettes(): LeakVignette[] {
   const chars: LeakVignette[] = ENTRIES.filter(e=>e.cat==='personnages').map(e=>({
@@ -4671,7 +4785,7 @@ function buildLeakVignettes(): LeakVignette[] {
     { category:'EXPÉRIENCE', title:'ARCHIVE MÉDICALE #204', line:'Accès restreint — cause du décès inconnue' },
   ];
   const secrets: LeakVignette[] = secretFilesCache.map(s=>({
-    category: 'FICHIER SECRET', title: s.title, line: s.line, image: s.image,
+    category: 'FICHIER SECRET', title: s.title, line: firstPlainLine(s.body), image: s.image, body: s.body,
   }));
   return [...chars, ...weapons, ...experiments, ...secrets];
 }
@@ -4755,7 +4869,9 @@ function openLeakFileWindow(v: LeakVignette): void {
             <div class="dossier-form-row head"><span>Évaluation</span><span>Statut</span></div>
             <div class="dossier-form-row"><span>Habilitation requise</span><span class="dossier-form-rating">Ω</span></div>
           </div>
-          <div class="dossier-form-comment">${esc(v.line)}</div>
+          ${v.body && v.body.length
+            ? `<div class="dossier-form-body">${renderRichBody(v.body)}</div>`
+            : `<div class="dossier-form-comment">${esc(v.line)}</div>`}
           <div class="dossier-form-footer">
             <span>Chef de département : Halcyon</span>
             <span>DOC-${refCode}</span>

@@ -659,6 +659,8 @@ let halcyonTierMembersCache = [];
 let halcyonSquadMembersCache = [];
 let halcyonSquadDocsCache = [];
 let halcyonSquadProjectsCache = [];
+const PROJECT_IMAGE_BUDGET_BYTES = 700 * 1024;
+let spjImageDraft = {};
 let secretFilesCache = [];
 const SECRET_IMAGE_BUDGET_BYTES = 700 * 1024;
 let sfImageDraft = '';
@@ -685,7 +687,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfLine'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -832,7 +834,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '' });
+            list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '', image: data.image || undefined });
         });
         halcyonSquadProjectsCache = list;
         const draft = captureDraftFormState();
@@ -844,7 +846,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, title: data.title, line: data.line || '', image: data.image || undefined });
+            list.push({ id: doc.id, title: data.title, body: data.body || (data.line ? [data.line] : []), image: data.image || undefined, author: data.author || 'aki' });
         });
         secretFilesCache = list;
         const draft = captureDraftFormState();
@@ -1091,12 +1093,17 @@ function renderEcriture() {
     <h1 style="font-size:26px; margin:44px 0 6px;">Fichiers secrets</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
       Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
-      Fichier Zero (l'archive corrompue, une fois le terminal piraté), mélangé aux personnages et
-      armes déjà écrits.
+      Fichier Zéro (l'archive corrompue, une fois le terminal piraté), mélangé aux personnages et
+      armes déjà écrits. Seuls les fichiers que tu as toi-même écrits apparaissent dans la liste
+      ci-dessous.
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
-      <div class="write-row"><label>Ligne (courte)</label><input id="sfLine" type="text" placeholder="Ex : Disparu après la phase 2"></div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par bloc de lignes)</label>
+        <textarea id="sfBody" rows="5" placeholder="Écris le contenu du fichier…"></textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras, <code>[code]texte]</code> pour une archive verrouillée.</div>
+      </div>
       <div class="write-row">
         <label>Image (optionnel, 700 Ko max)</label>
         <div class="write-images-list" id="sfImagePreview">${secretFileImagePreviewHtml()}</div>
@@ -1106,11 +1113,14 @@ function renderEcriture() {
       <span class="btn btn-primary" onclick="addSecretFile()">Ajouter le fichier</span>
     </div>
     <div class="account-list">
-      ${secretFilesCache.length ? secretFilesCache.map(s => `
+      ${(() => {
+        const mine = secretFilesCache.filter(s => s.author === getCurrentUser());
+        return mine.length ? mine.map(s => `
         <div class="account-list-row">
           <span>${esc(s.title)}</span>
           <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement ce fichier ?')){ deleteSecretFile('${s.id}'); }">Supprimer</span>
-        </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`}
+        </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`;
+      })()}
     </div>
   `;
 }
@@ -1187,6 +1197,58 @@ function refreshSquadDossierImagePreviews() {
     if (imgWrap) imgWrap.innerHTML = squadImagePreviewHtml('image');
     const logoWrap = document.getElementById('sqdLogoPreview');
     if (logoWrap) logoWrap.innerHTML = squadImagePreviewHtml('logo');
+}
+function handleNewSquadProjectImage(squadId, input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > PROJECT_IMAGE_BUDGET_BYTES) {
+        alert('Image trop lourde : 700 Ko maximum.');
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        spjImageDraft[squadId] = reader.result;
+        input.value = '';
+        refreshNewSquadProjectImagePreview(squadId);
+    };
+    reader.readAsDataURL(file);
+}
+function removeNewSquadProjectImage(squadId) {
+    delete spjImageDraft[squadId];
+    refreshNewSquadProjectImagePreview(squadId);
+}
+function newSquadProjectImagePreviewHtml(squadId) {
+    const val = spjImageDraft[squadId];
+    return val
+        ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeNewSquadProjectImage('${squadId}')">Retirer</span></div>`
+        : '';
+}
+function refreshNewSquadProjectImagePreview(squadId) {
+    const wrap = document.getElementById('spjImagePreview-' + squadId);
+    if (wrap) wrap.innerHTML = newSquadProjectImagePreviewHtml(squadId);
+}
+function handleSquadProjectImage(id, input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > PROJECT_IMAGE_BUDGET_BYTES) {
+        alert('Image trop lourde : 700 Ko maximum.');
+        input.value = '';
+        return;
+    }
+    const db = getFirestoreDb();
+    if (!db) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        db.collection('halcyonSquadProjects').doc(id).update({ image: reader.result });
+        input.value = '';
+    };
+    reader.readAsDataURL(file);
+}
+function removeSquadProjectImage(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('halcyonSquadProjects').doc(id).update({ image: null });
 }
 function onWfFactionSelectChange() {
     const select = document.getElementById('wfFactionSelect');
@@ -1593,7 +1655,14 @@ function addSquadProject(squadId) {
     const desc = (descEl?.value || '').trim();
     if (!title) { if (errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
     if (errEl) errEl.textContent = '';
-    db.collection('halcyonSquadProjects').add({ squadId, title, desc })
+    const image = spjImageDraft[squadId] || null;
+    db.collection('halcyonSquadProjects').add({ squadId, title, desc, image })
+        .then(() => {
+            if (titleEl) titleEl.value = '';
+            if (descEl) descEl.value = '';
+            delete spjImageDraft[squadId];
+            refreshNewSquadProjectImagePreview(squadId);
+        })
         .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 function deleteSquadProject(id) {
@@ -1632,19 +1701,20 @@ function refreshSecretFileImagePreview() {
 }
 function addSecretFile() {
     const titleEl = document.getElementById('sfTitle');
-    const lineEl = document.getElementById('sfLine');
+    const bodyEl = document.getElementById('sfBody');
     const errEl = document.getElementById('sfError');
     const db = getFirestoreDb();
     if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
     const title = (titleEl?.value || '').trim();
-    const line = (lineEl?.value || '').trim();
+    const body = parseWriteBody(bodyEl?.value || '');
     if (!title) { if (errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
+    if (!body.length) { if (errEl) errEl.textContent = 'Écris au moins une ligne de texte.'; return; }
     if (errEl) errEl.textContent = '';
     const image = sfImageDraft;
-    db.collection('secretFiles').add({ title, line, image })
+    db.collection('secretFiles').add({ title, body, image, author: getCurrentUser() || 'aki' })
         .then(() => {
             if (titleEl) titleEl.value = '';
-            if (lineEl) lineEl.value = '';
+            if (bodyEl) bodyEl.value = '';
             sfImageDraft = '';
             refreshSecretFileImagePreview();
         })
@@ -3607,13 +3677,19 @@ function renderSquadDossier(id) {
             <div class="project-doc-head">
               <div class="project-doc-photo">
                 <div class="project-doc-photo-clip"></div>
-                <div class="project-doc-photo-icon">◈</div>
+                ${p.image ? `<img class="project-doc-photo-img" src="${p.image}" alt="">` : `<div class="project-doc-photo-icon">◈</div>`}
               </div>
               <div class="project-doc-meta">
                 <span class="project-doc-num">N° ${pCode}</span>
                 <div class="project-doc-title">${esc(p.title)}</div>
               </div>
             </div>
+            ${editing ? `
+            <div class="project-doc-image-edit">
+              <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
+              <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
+              ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+            </div>` : ''}
             <div class="project-doc-fields">
               <div><b>Projet</b>${esc(p.title)}</div>
               <div><b>Département</b>${esc(squad.category || squad.name)}</div>
@@ -3633,6 +3709,11 @@ function renderSquadDossier(id) {
       <div class="write-form halcyon-edit-panel" style="max-width:480px;">
         <div class="write-row"><label>Titre du projet</label><input id="spjTitle-${id}" type="text" placeholder="Ex : Protocole Aube Grise"></div>
         <div class="write-row"><label>Description</label><textarea id="spjDesc-${id}" rows="3" placeholder="Description courte du projet…"></textarea></div>
+        <div class="write-row">
+          <label>Image (optionnel, 700 Ko max)</label>
+          <div class="write-images-list" id="spjImagePreview-${id}">${newSquadProjectImagePreviewHtml(id)}</div>
+          <input id="spjImageFile-${id}" type="file" accept="image/*" onchange="handleNewSquadProjectImage('${id}', this)">
+        </div>
         <div class="write-error" id="spjError-${id}"></div>
         <span class="btn btn-primary" onclick="addSquadProject('${id}')">+ Ajouter un projet</span>
       </div>` : ''}
@@ -4090,6 +4171,20 @@ function submitCorruptTermCommand() {
         appendCorruptTermLine('[ERREUR] COMMANDE INCONNUE', true);
     }
 }
+function firstPlainLine(body) {
+    let fallback = '';
+    for (const raw of body) {
+        const line = raw.trim();
+        if (!line || line.startsWith(LOCK_SENTINEL)) continue;
+        if (line.startsWith('#')) {
+            if (!fallback) fallback = line.replace(/^#+\s*/, '');
+            continue;
+        }
+        const stripped = line.replace(/^[-*]\s*/, '').replace(/^>\s*/, '').replace(/\*\*/g, '');
+        if (stripped) return stripped;
+    }
+    return fallback;
+}
 function buildLeakVignettes() {
     const chars = ENTRIES.filter(e => e.cat === 'personnages').map(e => ({
         category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline, image: e.image,
@@ -4105,7 +4200,7 @@ function buildLeakVignettes() {
         { category: 'EXPÉRIENCE', title: 'ARCHIVE MÉDICALE #204', line: 'Accès restreint — cause du décès inconnue' },
     ];
     const secrets = secretFilesCache.map(s => ({
-        category: 'FICHIER SECRET', title: s.title, line: s.line, image: s.image,
+        category: 'FICHIER SECRET', title: s.title, line: firstPlainLine(s.body), image: s.image, body: s.body,
     }));
     return [...chars, ...weapons, ...experiments, ...secrets];
 }
@@ -4182,7 +4277,9 @@ function openLeakFileWindow(v) {
             <div class="dossier-form-row head"><span>Évaluation</span><span>Statut</span></div>
             <div class="dossier-form-row"><span>Habilitation requise</span><span class="dossier-form-rating">Ω</span></div>
           </div>
-          <div class="dossier-form-comment">${esc(v.line)}</div>
+          ${v.body && v.body.length
+            ? `<div class="dossier-form-body">${renderRichBody(v.body)}</div>`
+            : `<div class="dossier-form-comment">${esc(v.line)}</div>`}
           <div class="dossier-form-footer">
             <span>Chef de département : Halcyon</span>
             <span>DOC-${refCode}</span>
