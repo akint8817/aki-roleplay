@@ -4749,7 +4749,7 @@ function novelanceHudHtml() {
         <button type="button" class="novelance-hud-rotate-btn" onclick="rotateNovelanceMap(30)" title="Tourner à droite" aria-label="Tourner à droite">⟳</button>
       </div>
 
-      <div class="novelance-hud-hint">🖱️ Glisser pour déplacer · Molette pour zoomer · ⟲⟳ pour tourner</div>
+      <div class="novelance-hud-hint">🖱️ Glisser pour déplacer · Clic droit + glisser pour tourner · Molette pour zoomer</div>
     </div>
   `;
 }
@@ -4772,8 +4772,7 @@ function renderNovelance() {
 const NOVELANCE_WORLD_W = 2600, NOVELANCE_WORLD_H = 1500;
 let novelanceRotationDeg = 0;
 let novelanceCam = null;
-function rotateNovelanceMap(delta) {
-    novelanceRotationDeg = (novelanceRotationDeg + delta + 360) % 360;
+function novelanceRegenerateMap() {
     const wrap = document.getElementById('novelanceMapWrap');
     if (!wrap) return;
     wrap.innerHTML = novelanceMapSvg(novelanceRotationDeg) + novelanceHudHtml();
@@ -4782,6 +4781,10 @@ function rotateNovelanceMap(delta) {
         svg.style.transformOrigin = '0 0';
         if (novelanceCam) svg.style.transform = `translate(${novelanceCam.x}px, ${novelanceCam.y}px) scale(${novelanceCam.scale})`;
     }
+}
+function rotateNovelanceMap(delta) {
+    novelanceRotationDeg = (novelanceRotationDeg + delta + 360) % 360;
+    novelanceRegenerateMap();
 }
 function initNovelanceMap() {
     const wrap = document.getElementById('novelanceMapWrap');
@@ -4802,13 +4805,37 @@ function initNovelanceMap() {
     apply();
     let dragging = false, moved = false;
     let down = null;
+    let rotatingDrag = false;
+    let rotateDown = null;
+    let rafPending = false;
+    function scheduleRegenerate() {
+        if (rafPending) return;
+        rafPending = true;
+        requestAnimationFrame(() => { rafPending = false; novelanceRegenerateMap(); });
+    }
+    wrap.addEventListener('contextmenu', (e) => e.preventDefault());
     function onDown(e) {
         if (!novelanceCam) return;
+        if (e.button === 2) {
+            rotatingDrag = true; moved = false;
+            rotateDown = { x: e.clientX, rot: novelanceRotationDeg };
+            wrap.style.cursor = 'grabbing';
+            return;
+        }
+        if (e.button !== 0) return;
         dragging = true; moved = false;
         down = { x: e.clientX, y: e.clientY, cx: novelanceCam.x, cy: novelanceCam.y };
         wrap.style.cursor = 'grabbing';
     }
     function onMove(e) {
+        if (rotatingDrag && rotateDown) {
+            const dx = e.clientX - rotateDown.x;
+            if (Math.abs(dx) > 2) moved = true;
+            const sensitivity = 0.35;
+            novelanceRotationDeg = ((rotateDown.rot + dx * sensitivity) % 360 + 360) % 360;
+            scheduleRegenerate();
+            return;
+        }
         if (!dragging || !down || !novelanceCam) return;
         const dx = e.clientX - down.x, dy = e.clientY - down.y;
         if (Math.hypot(dx, dy) > 4) moved = true;
@@ -4817,6 +4844,16 @@ function initNovelanceMap() {
         apply();
     }
     function onUp() {
+        if (rotatingDrag) {
+            rotatingDrag = false;
+            rotateDown = null;
+            wrap.style.cursor = 'grab';
+            if (moved) {
+                const block = (ev) => { ev.stopPropagation(); wrap.removeEventListener('click', block, true); };
+                wrap.addEventListener('click', block, true);
+            }
+            return;
+        }
         dragging = false;
         wrap.style.cursor = 'grab';
         if (moved) {

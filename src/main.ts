@@ -5208,7 +5208,7 @@ function novelanceHudHtml(): string {
         <button type="button" class="novelance-hud-rotate-btn" onclick="rotateNovelanceMap(30)" title="Tourner à droite" aria-label="Tourner à droite">⟳</button>
       </div>
 
-      <div class="novelance-hud-hint">🖱️ Glisser pour déplacer · Molette pour zoomer · ⟲⟳ pour tourner</div>
+      <div class="novelance-hud-hint">🖱️ Glisser pour déplacer · Clic droit + glisser pour tourner · Molette pour zoomer</div>
     </div>
   `;
 }
@@ -5234,11 +5234,11 @@ const NOVELANCE_WORLD_W = 2600, NOVELANCE_WORLD_H = 1500;
 let novelanceRotationDeg = 0;
 let novelanceCam: { x: number; y: number; scale: number } | null = null;
 
-// Tourne la carte de tant de degrés : on régénère juste le <svg> (mêmes
-// bâtiments, angles de vue différents) et on réapplique le pan/zoom en
-// cours, pour ne pas perdre la position de la caméra en tournant.
-function rotateNovelanceMap(delta: number): void {
-  novelanceRotationDeg = (novelanceRotationDeg + delta + 360) % 360;
+// Régénère le <svg> avec l'angle de rotation courant (mêmes bâtiments, vue
+// différente) et réapplique le pan/zoom en cours, pour ne pas perdre la
+// position de la caméra en tournant. Partagé entre les boutons ⟲/⟳ et la
+// rotation continue à la souris.
+function novelanceRegenerateMap(): void {
   const wrap = document.getElementById('novelanceMapWrap');
   if(!wrap) return;
   wrap.innerHTML = novelanceMapSvg(novelanceRotationDeg) + novelanceHudHtml();
@@ -5247,6 +5247,12 @@ function rotateNovelanceMap(delta: number): void {
     svg.style.transformOrigin = '0 0';
     if(novelanceCam) svg.style.transform = `translate(${novelanceCam.x}px, ${novelanceCam.y}px) scale(${novelanceCam.scale})`;
   }
+}
+
+// Tourne la carte de tant de degrés (boutons ⟲/⟳).
+function rotateNovelanceMap(delta: number): void {
+  novelanceRotationDeg = (novelanceRotationDeg + delta + 360) % 360;
+  novelanceRegenerateMap();
 }
 
 // Pan (glisser) + zoom (molette) sur la carte de Novelance. Le décor iso est
@@ -5277,13 +5283,44 @@ function initNovelanceMap(): void {
   let dragging = false, moved = false;
   let down: { x: number; y: number; cx: number; cy: number } | null = null;
 
+  // Rotation continue au clic droit maintenu (glisser horizontalement).
+  // Le rendu du <svg> (des centaines de polygones) est coûteux, donc on ne
+  // le régénère qu'une fois par frame (requestAnimationFrame) même si des
+  // dizaines d'événements pointermove arrivent entre deux frames, pour que
+  // la rotation reste fluide.
+  let rotatingDrag = false;
+  let rotateDown: { x: number; rot: number } | null = null;
+  let rafPending = false;
+  function scheduleRegenerate(): void {
+    if(rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(() => { rafPending = false; novelanceRegenerateMap(); });
+  }
+
+  wrap.addEventListener('contextmenu', (e: Event) => e.preventDefault());
+
   function onDown(e: PointerEvent): void {
     if(!novelanceCam) return;
+    if(e.button === 2){
+      rotatingDrag = true; moved = false;
+      rotateDown = { x: e.clientX, rot: novelanceRotationDeg };
+      wrap!.style.cursor = 'grabbing';
+      return;
+    }
+    if(e.button !== 0) return;
     dragging = true; moved = false;
     down = { x: e.clientX, y: e.clientY, cx: novelanceCam.x, cy: novelanceCam.y };
     wrap!.style.cursor = 'grabbing';
   }
   function onMove(e: PointerEvent): void {
+    if(rotatingDrag && rotateDown){
+      const dx = e.clientX - rotateDown.x;
+      if(Math.abs(dx) > 2) moved = true;
+      const sensitivity = 0.35;
+      novelanceRotationDeg = ((rotateDown.rot + dx*sensitivity) % 360 + 360) % 360;
+      scheduleRegenerate();
+      return;
+    }
     if(!dragging || !down || !novelanceCam) return;
     const dx = e.clientX - down.x, dy = e.clientY - down.y;
     if(Math.hypot(dx,dy) > 4) moved = true;
@@ -5292,6 +5329,16 @@ function initNovelanceMap(): void {
     apply();
   }
   function onUp(): void {
+    if(rotatingDrag){
+      rotatingDrag = false;
+      rotateDown = null;
+      wrap!.style.cursor = 'grab';
+      if(moved){
+        const block = (ev: Event) => { ev.stopPropagation(); wrap!.removeEventListener('click', block, true); };
+        wrap!.addEventListener('click', block, true);
+      }
+      return;
+    }
     dragging = false;
     wrap!.style.cursor = 'grab';
     if(moved){
