@@ -3178,8 +3178,6 @@ function renderHalcyonPage() {
         </div>
         <div class="halcyon-archive-card-arrow">→</div>
       </div>
-
-      <div class="editnote">💡 Page de présentation d'exemple — complète cette fiche avec l'histoire complète d'Halcyon (fondation, dirigeants, événements clés…).</div>
     </div>
   `;
 }
