@@ -2623,7 +2623,16 @@ function renderPersonnageEntry(e) {
             <span class="op-corner op-corner-bl"></span>
             <span class="op-corner op-corner-br"></span>
           </div>
-          ${e.image ? `<img class="op-hero-img" src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">` : ''}
+          <div class="op-hero-badge">
+            <div class="op-hero-badge-clip"></div>
+            ${e.image
+                ? `<img class="op-hero-badge-img" src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">`
+                : `<div class="op-hero-badge-noimg">${esc(e.name.charAt(0))}</div>`}
+            <div class="op-hero-badge-info">
+              <div class="op-hero-badge-name">${esc(e.name)}</div>
+              <span class="op-hero-badge-tag">Personnage</span>
+            </div>
+          </div>
         </div>
         <div class="op-name-row">
           <span class="tag ${e.rarity}">${e.rarity === 'rare' ? 'Notable' : 'Commun'} · ${c.label}</span>
@@ -2671,13 +2680,13 @@ function initPersonnageEntryRail() {
     }
     const hero = document.querySelector('.op-hero');
     if (hero) {
-        const img = hero.querySelector('.op-hero-img');
+        const img = hero.querySelector('.op-hero-badge');
         const blob = hero.querySelector('.op-hero-blob');
         hero.onmousemove = (ev) => {
             const rect = hero.getBoundingClientRect();
             const dx = (ev.clientX - rect.left) / rect.width - 0.5;
             const dy = (ev.clientY - rect.top) / rect.height - 0.5;
-            if (img) img.style.transform = `translate(${dx * -14}px, ${dy * -8}px) scale(1.03)`;
+            if (img) img.style.transform = `translateY(-50%) translate(${dx * -14}px, ${dy * -8}px) scale(1.03)`;
             if (blob) blob.style.transform = `translate(${dx * 20}px, ${dy * 14}px)`;
         };
         hero.onmouseleave = () => {
