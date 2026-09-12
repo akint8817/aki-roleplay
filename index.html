@@ -2309,11 +2309,12 @@ h1,h2,h3,h4{
 }
 .op-rail-all:hover{ color:var(--amber); border-color:var(--amber-dim); }
 
-.op-main{ flex:1; min-width:0; }
+.op-main{ flex:1; min-width:0; position:relative; }
 .op-hero{
-  position:relative; height:300px; overflow:hidden; background:var(--surface-2);
+  position:relative; height:300px; background:var(--surface-2);
   border-bottom:1px solid var(--border);
 }
+.op-hero-fx{ position:absolute; inset:0; overflow:hidden; }
 .op-hero-bgtext{
   position:absolute; inset:0; display:flex; align-items:center;
   font-family:'Cinzel', serif; font-weight:700; letter-spacing:0.02em;
@@ -2326,8 +2327,8 @@ h1,h2,h3,h4{
   pointer-events:none;
 }
 .op-hero-badge{
-  position:absolute; right:5%; top:50%; transform:translateY(-50%);
-  height:84%; aspect-ratio: 3 / 4;
+  position:absolute; right:5%; top:14px; z-index:3;
+  height:340px; aspect-ratio: 3 / 4;
   border:3px solid rgb(var(--fclr)); border-radius:14px; overflow:hidden;
   background:#0c0a12;
   box-shadow: 0 16px 32px rgba(0,0,0,0.55);
@@ -2358,7 +2359,7 @@ h1,h2,h3,h4{
 }
 @media (max-width:700px){
   .op-hero{ height:220px; }
-  .op-hero-badge{ right:3%; height:78%; }
+  .op-hero-badge{ right:3%; height:250px; top:10px; }
 }
 .op-name-row{ padding:18px 24px 0; }
 .op-name{ font-family:'Cinzel', serif; font-size:28px; letter-spacing:0.02em; color:#f0ebdc; margin-top:8px; }
@@ -2375,10 +2376,10 @@ h1,h2,h3,h4{
 .op-history-btn{ display:inline-block; margin:16px 24px 0; }
 .op-article-body{ padding-top:20px; }
 
-.op-hero{ opacity:0; transition: opacity .5s ease; overflow:hidden; }
+.op-hero{ opacity:0; transition: opacity .5s ease; }
 .op-page.in .op-hero{ opacity:1; }
 .op-hero-badge{ transition: transform .25s ease-out; }
-.op-page:hover .op-hero-badge{ transform: translateY(-50%) scale(1.03); }
+.op-page:hover .op-hero-badge{ transform: scale(1.03); }
 .op-hero-blob{ transition: transform .3s ease-out; }
 .op-hero-bgtext{ animation: opBgDrift 8s ease-in-out infinite; }
 @keyframes opBgDrift{ 0%,100%{ transform:translateX(0); } 50%{ transform:translateX(10px); } }
@@ -3298,6 +3299,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=41"></script>
+<script src="dist/main.js?v=42"></script>
 </body>
 </html>

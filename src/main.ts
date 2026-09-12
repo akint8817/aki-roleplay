@@ -3078,17 +3078,19 @@ function renderPersonnageEntry(e: Entry): string {
       </div>
       <div class="op-main">
         <div class="op-hero" style="--fclr:${fclr}">
-          <div class="op-hero-bgtext">${esc(bgWord)}</div>
-          <div class="op-hero-blob"></div>
-          <div class="op-hero-shard op-hero-shard-1"></div>
-          <div class="op-hero-shard op-hero-shard-2"></div>
-          <div class="op-hero-particles">${opParticlesHtml()}</div>
-          <div class="op-hero-scan"></div>
-          <div class="op-hero-corners">
-            <span class="op-corner op-corner-tl"></span>
-            <span class="op-corner op-corner-tr"></span>
-            <span class="op-corner op-corner-bl"></span>
-            <span class="op-corner op-corner-br"></span>
+          <div class="op-hero-fx">
+            <div class="op-hero-bgtext">${esc(bgWord)}</div>
+            <div class="op-hero-blob"></div>
+            <div class="op-hero-shard op-hero-shard-1"></div>
+            <div class="op-hero-shard op-hero-shard-2"></div>
+            <div class="op-hero-particles">${opParticlesHtml()}</div>
+            <div class="op-hero-scan"></div>
+            <div class="op-hero-corners">
+              <span class="op-corner op-corner-tl"></span>
+              <span class="op-corner op-corner-tr"></span>
+              <span class="op-corner op-corner-bl"></span>
+              <span class="op-corner op-corner-br"></span>
+            </div>
           </div>
           <div class="op-hero-badge">
             <div class="op-hero-badge-clip"></div>
@@ -3155,7 +3157,7 @@ function initPersonnageEntryRail(): void {
       const rect = hero.getBoundingClientRect();
       const dx = (ev.clientX - rect.left)/rect.width - 0.5;
       const dy = (ev.clientY - rect.top)/rect.height - 0.5;
-      if(img) img.style.transform = `translateY(-50%) translate(${dx*-14}px, ${dy*-8}px) scale(1.03)`;
+      if(img) img.style.transform = `translate(${dx*-14}px, ${dy*-8}px) scale(1.03)`;
       if(blob) blob.style.transform = `translate(${dx*20}px, ${dy*14}px)`;
     };
     hero.onmouseleave = ()=>{
