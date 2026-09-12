@@ -867,6 +867,10 @@ let halcyonSquadMembersCache: HalcyonRosterLink[] = [];
 // escadron du code (voir SQUADS) le surcharge, un autre id est un nouvel
 // escadron créé depuis le site — voir getAllSquads.
 let halcyonSquadDocsCache: (Partial<Squad> & { id: string })[] = [];
+// Projets affichés en cartes sur le dossier d'un escadron (voir
+// renderSquadDossier) — groupId est l'id de l'escadron concerné.
+interface SquadProject { id: string; groupId: string; title: string; desc: string; }
+let halcyonSquadProjectsCache: SquadProject[] = [];
 // Bascule l'édition inline sur la page Halcyon (bouton "Modifier", visible
 // seulement pour un utilisateur connecté) — voir renderHalcyonPage.
 let halcyonEditMode = false;
@@ -1064,6 +1068,18 @@ function initFirestoreSync(): void {
     render();
     restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (halcyonSquads) :', err));
+
+  db.collection('halcyonSquadProjects').onSnapshot((snap: any) => {
+    const list: SquadProject[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '' });
+    });
+    halcyonSquadProjectsCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (halcyonSquadProjects) :', err));
 }
 
 function getCustomEntriesRaw(): CustomEntry[] {
@@ -1867,6 +1883,28 @@ function toggleSquadDossierEditMode(id: string): void {
     sqdLogoDraft = squad?.logo || '';
   }
   render();
+}
+
+// Cartes "projets" affichées sur le dossier d'un escadron (voir
+// renderSquadDossier), façon fiches d'équipement.
+function addSquadProject(squadId: string): void {
+  const titleEl = document.getElementById('spjTitle-' + squadId) as HTMLInputElement | null;
+  const descEl = document.getElementById('spjDesc-' + squadId) as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('spjError-' + squadId);
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const title = (titleEl?.value || '').trim();
+  const desc = (descEl?.value || '').trim();
+  if(!title){ if(errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
+  if(errEl) errEl.textContent = '';
+  db.collection('halcyonSquadProjects').add({ squadId, title, desc })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function deleteSquadProject(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('halcyonSquadProjects').doc(id).delete();
 }
 
 function renderCustomPage(id: string): string {
@@ -3834,15 +3872,21 @@ function initNewsIntro(): void {
 }
 
 /* ---------------- HALCYON — page de présentation de l'organisation ---------------- */
+// Chaque palier de la hiérarchie est relié au suivant par un connecteur
+// (trait + chevron), façon organigramme, plutôt qu'une simple liste de blocs
+// empilés — la hiérarchie de Halcyon reste une chaîne séquentielle (pas de
+// branches parallèles), donc l'arbre est ici une colonne unique reliée de
+// haut en bas.
 function renderOrgTree(): string {
+  const tiers = HALCYON_HIERARCHY;
   return `
-    <div class="org-tree">
-      ${HALCYON_HIERARCHY.map(tier=>{
+    <div class="org-chart">
+      ${tiers.map((tier, i)=>{
         const customMembers = halcyonTierMembersCache.filter(m=>m.groupId===tier.id);
         const hasAny = tier.memberIds.length || customMembers.length;
         const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !tier.memberIds.includes(e.id) && !customMembers.some(m=>m.entryId===e.id)) : [];
         return `
-        <div class="org-tier-box">
+        <div class="org-chart-node">
           <div class="org-tier-label">${esc(tier.label)}</div>
           <p class="org-tier-desc">${esc(tier.desc)}</p>
           <div class="org-tier-members">
@@ -3869,7 +3913,8 @@ function renderOrgTree(): string {
             <span class="btn btn-ghost btn-sm" onclick="addHalcyonTierMember('${tier.id}')">+ Ajouter</span>
           </div>
           <div class="write-error" id="htmError-${tier.id}"></div>` : ''}
-        </div>`;
+        </div>
+        ${i < tiers.length-1 ? `<div class="org-chart-connector"><span class="org-chart-connector-line"></span><span class="org-chart-connector-chevron">⌄</span><span class="org-chart-connector-line"></span></div>` : ''}`;
       }).join('')}
     </div>
   `;
@@ -3983,6 +4028,30 @@ function renderSquadDossier(id: string): string {
     </div>
     ${isLoggedIn() ? `<span class="btn btn-ghost halcyon-edit-toggle" onclick="toggleSquadDossierEditMode('${id}')">✎ Modifier</span>` : ''}
     `}
+
+    ${(() => {
+      const projects = halcyonSquadProjectsCache.filter(p => p.groupId === id);
+      if(!projects.length && !editing) return '';
+      return `
+      <div class="section-title"><h2>Projets</h2></div>
+      <div class="tech-project-grid">
+        ${projects.map(p => `
+          <div class="tech-project-card">
+            ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
+            <div class="tech-project-icon">◈</div>
+            <div class="tech-project-title">${esc(p.title.toUpperCase())}</div>
+            <p class="tech-project-desc">${esc(p.desc)}</p>
+          </div>`).join('')}
+      </div>
+      ${editing ? `
+      <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+        <div class="write-row"><label>Titre du projet</label><input id="spjTitle-${id}" type="text" placeholder="Ex : Protocole Aube Grise"></div>
+        <div class="write-row"><label>Description</label><textarea id="spjDesc-${id}" rows="3" placeholder="Description courte du projet…"></textarea></div>
+        <div class="write-error" id="spjError-${id}"></div>
+        <span class="btn btn-primary" onclick="addSquadProject('${id}')">+ Ajouter un projet</span>
+      </div>` : ''}
+      `;
+    })()}
 
     <div class="section-title"><h2>Effectif</h2></div>
     ${renderSquadRoster(squad)}
