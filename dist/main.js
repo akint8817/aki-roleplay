@@ -3811,7 +3811,7 @@ function renderCorruptedArchive() {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('armes')" style="cursor:pointer">Armes</span> / ????</div>
     <div class="corrupt-terminal cyber-glitch-ambient" id="corruptTerminal">
       <div class="corrupt-terminal-bg">
-        <div class="corrupt-hex-layer">${corruptHexLayerHtml(9, 16)}</div>
+        <div class="corrupt-hex-layer">${corruptHexLayerHtml(14, 34)}</div>
         <div class="corrupt-stream-layer">${corruptStreamColumnsHtml(9)}</div>
         ${windows}
       </div>
