@@ -660,6 +660,8 @@ let halcyonSquadMembersCache = [];
 let halcyonSquadDocsCache = [];
 let halcyonSquadProjectsCache = [];
 let secretFilesCache = [];
+const SECRET_IMAGE_BUDGET_BYTES = 700 * 1024;
+let sfImageDraft = '';
 let halcyonEditMode = false;
 let squadDossierEditId = null;
 function getFirestoreDb() {
@@ -842,7 +844,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, title: data.title, line: data.line || '' });
+            list.push({ id: doc.id, title: data.title, line: data.line || '', image: data.image || undefined });
         });
         secretFilesCache = list;
         const draft = captureDraftFormState();
@@ -1089,12 +1091,17 @@ function renderEcriture() {
     <h1 style="font-size:26px; margin:44px 0 6px;">Fichiers secrets</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
       Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
-      Fichier Zero (l'archive corrompue accessible seulement une fois connecté), mélangé aux
-      personnages et armes déjà écrits.
+      Fichier Zero (l'archive corrompue, une fois le terminal piraté), mélangé aux personnages et
+      armes déjà écrits.
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
       <div class="write-row"><label>Ligne (courte)</label><input id="sfLine" type="text" placeholder="Ex : Disparu après la phase 2"></div>
+      <div class="write-row">
+        <label>Image (optionnel, 700 Ko max)</label>
+        <div class="write-images-list" id="sfImagePreview">${secretFileImagePreviewHtml()}</div>
+        <input id="sfImageFile" type="file" accept="image/*" onchange="handleSecretFileImage(this)">
+      </div>
       <div class="write-error" id="sfError"></div>
       <span class="btn btn-primary" onclick="addSecretFile()">Ajouter le fichier</span>
     </div>
@@ -1594,6 +1601,35 @@ function deleteSquadProject(id) {
     if (!db) return;
     db.collection('halcyonSquadProjects').doc(id).delete();
 }
+function handleSecretFileImage(input) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    if (file.size > SECRET_IMAGE_BUDGET_BYTES) {
+        alert(`Image trop lourde : 700 Ko maximum.`);
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        sfImageDraft = reader.result;
+        input.value = '';
+        refreshSecretFileImagePreview();
+    };
+    reader.readAsDataURL(file);
+}
+function removeSecretFileImage() {
+    sfImageDraft = '';
+    refreshSecretFileImagePreview();
+}
+function secretFileImagePreviewHtml() {
+    return sfImageDraft
+        ? `<div class="write-image-item"><img src="${sfImageDraft}" alt=""><span class="btn btn-ghost" onclick="removeSecretFileImage()">Retirer</span></div>`
+        : '';
+}
+function refreshSecretFileImagePreview() {
+    const wrap = document.getElementById('sfImagePreview');
+    if (wrap) wrap.innerHTML = secretFileImagePreviewHtml();
+}
 function addSecretFile() {
     const titleEl = document.getElementById('sfTitle');
     const lineEl = document.getElementById('sfLine');
@@ -1604,7 +1640,14 @@ function addSecretFile() {
     const line = (lineEl?.value || '').trim();
     if (!title) { if (errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
     if (errEl) errEl.textContent = '';
-    db.collection('secretFiles').add({ title, line })
+    const image = sfImageDraft;
+    db.collection('secretFiles').add({ title, line, image })
+        .then(() => {
+            if (titleEl) titleEl.value = '';
+            if (lineEl) lineEl.value = '';
+            sfImageDraft = '';
+            refreshSecretFileImagePreview();
+        })
         .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 function deleteSecretFile(id) {
@@ -4015,10 +4058,10 @@ function submitCorruptTermCommand() {
 }
 function buildLeakVignettes() {
     const chars = ENTRIES.filter(e => e.cat === 'personnages').map(e => ({
-        category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline,
+        category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline, image: e.image,
     }));
     const weapons = WEAPONS.filter(w => !w.restricted).map(w => ({
-        category: 'ARME', title: w.name, line: `${w.danger} — ${w.status}`,
+        category: 'ARME', title: w.name, line: `${w.danger} — ${w.status}`, image: w.image,
     }));
     const experiments = [
         { category: 'EXPÉRIENCE', title: 'ESSAI BIO-12', line: 'Sujet Alpha — taux de rejet cellulaire 87%' },
@@ -4028,7 +4071,7 @@ function buildLeakVignettes() {
         { category: 'EXPÉRIENCE', title: 'ARCHIVE MÉDICALE #204', line: 'Accès restreint — cause du décès inconnue' },
     ];
     const secrets = secretFilesCache.map(s => ({
-        category: 'FICHIER SECRET', title: s.title, line: s.line,
+        category: 'FICHIER SECRET', title: s.title, line: s.line, image: s.image,
     }));
     return [...chars, ...weapons, ...experiments, ...secrets];
 }
@@ -4078,12 +4121,16 @@ function openLeakFileWindow(v) {
         modal.addEventListener('click', (ev) => { if (ev.target === modal) closeLeakFileWindow(); });
         document.body.appendChild(modal);
     }
+    const img = v.image ? (v.image.startsWith('data:') ? v.image : encodeURI(v.image)) : '';
     modal.innerHTML = `
-    <div class="leak-file-window-box">
+    <div class="leak-file-window-box${img ? ' has-media' : ''}">
       <button type="button" class="leak-file-window-close" onclick="closeLeakFileWindow()" aria-label="Fermer">✕</button>
-      <div class="leak-file-window-cat">${esc(v.category)}</div>
-      <div class="leak-file-window-title">${esc(v.title)}</div>
-      <p class="leak-file-window-line">${esc(v.line)}</p>
+      ${img ? `<div class="leak-file-window-media"><img src="${img}" alt=""></div>` : ''}
+      <div class="leak-file-window-body">
+        <div class="leak-file-window-cat">${esc(v.category)}</div>
+        <div class="leak-file-window-title">${esc(v.title)}</div>
+        <p class="leak-file-window-line">${esc(v.line)}</p>
+      </div>
     </div>
   `;
     requestAnimationFrame(() => modal.classList.add('open'));
