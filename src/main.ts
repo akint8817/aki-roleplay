@@ -4795,23 +4795,9 @@ function submitCorruptTermCommand(): void {
 interface LeakVignette { category: string; title: string; line: string; image?: string; body?: string[]; }
 
 function buildLeakVignettes(): LeakVignette[] {
-  const chars: LeakVignette[] = ENTRIES.filter(e=>e.cat==='personnages').map(e=>({
-    category: 'PERSONNAGE', title: e.name, line: Object.values(e.info)[0] || e.tagline, image: e.image,
-  }));
-  const weapons: LeakVignette[] = WEAPONS.filter(w=>!w.restricted).map(w=>({
-    category: 'ARME', title: w.name, line: `${w.danger} — ${w.status}`, image: w.image,
-  }));
-  const experiments: LeakVignette[] = [
-    { category:'EXPÉRIENCE', title:'ESSAI BIO-12', line:'Sujet Alpha — taux de rejet cellulaire 87%' },
-    { category:'EXPÉRIENCE', title:'PROTOCOLE HYBRIDE-Δ', line:'3 survivants sur 40' },
-    { category:'EXPÉRIENCE', title:'ENTROPY-3', line:'Fusion partielle réussie — effets secondaires non documentés' },
-    { category:'EXPÉRIENCE', title:'SUJET NÉANT', line:'Disparu après la phase 2' },
-    { category:'EXPÉRIENCE', title:'ARCHIVE MÉDICALE #204', line:'Accès restreint — cause du décès inconnue' },
-  ];
-  const secrets: LeakVignette[] = secretFilesCache.map(s=>({
+  return secretFilesCache.map(s=>({
     category: 'FICHIER SECRET', title: s.title, line: s.danger || 'Classification inconnue', image: s.image, body: s.body,
   }));
-  return [...chars, ...weapons, ...experiments, ...secrets];
 }
 
 function triggerDataLeak(): void {
