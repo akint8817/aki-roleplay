@@ -657,8 +657,9 @@ let wfImagesDraft = [];
 let halcyonInfoCache = { dirigeant: '', dirigeantDesc: '' };
 let halcyonTierMembersCache = [];
 let halcyonSquadMembersCache = [];
-let customSquadsCache = [];
+let halcyonSquadDocsCache = [];
 let halcyonEditMode = false;
+let squadDossierEditId = null;
 function getFirestoreDb() {
     return window.db || null;
 }
@@ -676,7 +677,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdImage', 'sqdLogo', 'sqdMusic', 'sqdBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -811,9 +812,9 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, name: data.name, desc: data.desc || '' });
+            list.push({ id: doc.id, name: data.name, desc: data.desc, tag: data.tag, category: data.category, image: data.image, logo: data.logo, music: data.music, body: data.body });
         });
-        customSquadsCache = list;
+        halcyonSquadDocsCache = list;
         const draft = captureDraftFormState();
         render();
         restoreDraftFormState(draft);
@@ -1425,7 +1426,64 @@ function allCharacterEntries() {
     return ENTRIES.filter(e => e.cat === 'personnages');
 }
 function getAllSquads() {
-    return [...SQUADS, ...customSquadsCache];
+    const overridesById = {};
+    const customList = [];
+    halcyonSquadDocsCache.forEach(doc => {
+        if (SQUADS.some(s => s.id === doc.id)) overridesById[doc.id] = doc;
+        else customList.push({
+            id: doc.id, name: doc.name || '', desc: doc.desc || '',
+            tag: doc.tag, category: doc.category, image: doc.image, logo: doc.logo, music: doc.music, body: doc.body,
+        });
+    });
+    const merged = SQUADS.map(s => {
+        const ov = overridesById[s.id];
+        if (!ov) return s;
+        return {
+            ...s,
+            name: ov.name || s.name,
+            desc: ov.desc || s.desc,
+            tag: ov.tag !== undefined ? ov.tag : s.tag,
+            category: ov.category !== undefined ? ov.category : s.category,
+            image: ov.image !== undefined ? ov.image : s.image,
+            logo: ov.logo !== undefined ? ov.logo : s.logo,
+            music: ov.music !== undefined ? ov.music : s.music,
+            body: ov.body !== undefined ? ov.body : s.body,
+        };
+    });
+    return [...merged, ...customList];
+}
+function saveSquadDossier(id) {
+    const nameEl = document.getElementById('sqdName');
+    const descEl = document.getElementById('sqdDesc');
+    const tagEl = document.getElementById('sqdTag');
+    const categoryEl = document.getElementById('sqdCategory');
+    const imageEl = document.getElementById('sqdImage');
+    const logoEl = document.getElementById('sqdLogo');
+    const musicEl = document.getElementById('sqdMusic');
+    const bodyEl = document.getElementById('sqdBody');
+    const errEl = document.getElementById('sqdError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const name = (nameEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!name) { if (errEl) errEl.textContent = "Donne un nom à l'escadron."; return; }
+    if (errEl) errEl.textContent = '';
+    const body = parseWriteBody(bodyEl?.value || '');
+    db.collection('halcyonSquads').doc(id).set({
+        name, desc,
+        tag: (tagEl?.value || '').trim(),
+        category: (categoryEl?.value || '').trim(),
+        image: (imageEl?.value || '').trim(),
+        logo: (logoEl?.value || '').trim(),
+        music: (musicEl?.value || '').trim(),
+        body,
+    }, { merge: true })
+        .then(() => { squadDossierEditId = null; render(); })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function toggleSquadDossierEditMode(id) {
+    squadDossierEditId = squadDossierEditId === id ? null : id;
+    render();
 }
 function renderCustomPage(id) {
     const page = customPagesCache.find(p => p.id === id);
@@ -1506,7 +1564,7 @@ const FACTIONS = [
         iconPath: '<circle cx="12" cy="12" r="9"/><path d="M15.2 8.8l-2 6.4-6.4 2 2-6.4 6.4-2z"/>' },
 ];
 const SQUADS = [
-    { id: 'oracle', name: 'Escadron Oracle',
+    { id: 'oracle', name: 'Escadron Oracle', category: "Escadron d'élite",
         desc: "Une unité d'élite de Halcyon commandée par Sariah Frosleaf, vouée à l'annihilation d'Oxiri." },
 ];
 const HALCYON_HIERARCHY = [
@@ -2123,7 +2181,7 @@ function renderEntry(id) {
         <p style="color:var(--text-dim); font-size:13.5px; margin-top:4px;">${esc(e.tagline)}</p>
         ${e.quote ? `<p class="entry-quote">${esc(e.quote)}</p>` : ''}
         ${entryLinkedCharactersHtml(e)}
-        ${entryMusicHtml(e)}
+        ${musicBarHtml(e.id, e.music)}
         ${entryOwnerActionsHtml(e)}
       </div>
       <div class="article-body">
@@ -2171,13 +2229,13 @@ function entryLinkedCharactersHtml(e) {
     </div>
   </div>`;
 }
-function entryMusicHtml(e) {
-    if (!e.music) return '';
-    const playerId = 'em-' + e.id;
-    const isSoundCloud = /soundcloud\.com/i.test(e.music);
+function musicBarHtml(ownerId, music) {
+    if (!music) return '';
+    const playerId = 'em-' + ownerId;
+    const isSoundCloud = /soundcloud\.com/i.test(music);
     const source = isSoundCloud
-        ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(e.music)}&auto_play=false&show_artwork=false"></iframe>`
-        : `<audio preload="metadata" loop src="${encodeURI(e.music)}"></audio>`;
+        ? `<iframe class="entry-music-sc-frame" scrolling="no" frameborder="no" allow="autoplay" src="https://w.soundcloud.com/player/?url=${encodeURIComponent(music)}&auto_play=false&show_artwork=false"></iframe>`
+        : `<audio preload="metadata" loop src="${encodeURI(music)}"></audio>`;
     return `<div class="entry-music" id="${playerId}" data-kind="${isSoundCloud ? 'soundcloud' : 'direct'}">
     <button type="button" class="entry-music-toggle" onclick="toggleEntryMusic('${playerId}')" aria-label="Lecture">▶</button>
     <div class="entry-music-track" onclick="seekEntryMusic(event,'${playerId}')">
@@ -2408,7 +2466,7 @@ function renderPersonnageEntry(e) {
         </div>
         ${e.quote ? `<p class="entry-quote op-quote">${esc(e.quote)}</p>` : ''}
         ${entryLinkedCharactersHtml(e)}
-        ${entryMusicHtml(e)}
+        ${musicBarHtml(e.id, e.music)}
         <span class="btn btn-ghost op-history-btn" onclick="openStoryBook('${e.id}')">📖 Histoire</span>
         ${entryOwnerActionsHtml(e)}
         <div class="article-body op-article-body">
@@ -3261,7 +3319,8 @@ function renderSquadRoster(squad) {
     });
     const list = [...baseList, ...customEntries.map(c => c.entry)];
     rosterStates[rosterId] = { factionId: squad.id, list, selected: 0 };
-    const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !seen.has(e.id)) : [];
+    const editingThisSquad = squadDossierEditId === squad.id;
+    const candidates = editingThisSquad ? allCharacterEntries().filter(e => !seen.has(e.id)) : [];
     return `
     <div class="roster-page no-rail">
       <div class="roster-main">
@@ -3282,7 +3341,7 @@ function renderSquadRoster(squad) {
         </div>
         <div class="roster-bubble" id="rosterBubble-${rosterId}"></div>
       </div>
-      ${halcyonEditMode ? `
+      ${editingThisSquad ? `
       <div class="halcyon-inline-add-row">
         <select id="hsmSelect-${squad.id}">
           <option value="">— Ajouter un personnage au carrousel —</option>
@@ -3294,25 +3353,93 @@ function renderSquadRoster(squad) {
       ${customEntries.length ? `<div class="halcyon-inline-list">${customEntries.map(c => `<span class="org-tier-chip">${esc(c.entry.name)} <span class="org-tier-chip-remove" onclick="deleteHalcyonSquadMember('${c.link.id}')">✕</span></span>`).join('')}</div>` : ''}` : ''}
     </div>`;
 }
+function renderSquadDossier(id) {
+    const squads = getAllSquads();
+    const idx = squads.findIndex(s => s.id === id);
+    const squad = squads[idx];
+    if (!squad) return renderNotFound();
+    const docCode = String(idx + 1).padStart(3, '0');
+    const editing = squadDossierEditId === id;
+    return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('halcyon')" style="cursor:pointer">Halcyon</span> / ${esc(squad.name)}</div>
+    ${editing ? `
+    <div class="write-form halcyon-edit-panel" style="max-width:640px;">
+      <div class="write-row"><label>Nom</label><input id="sqdName" type="text" value="${escAttr(squad.name)}"></div>
+      <div class="write-row"><label>Résumé (carte de la liste)</label><textarea id="sqdDesc" rows="3">${esc(squad.desc)}</textarea></div>
+      <div class="write-row"><label>Tag de la bannière</label><input id="sqdTag" type="text" value="${escAttr(squad.tag || '')}" placeholder="Ex : ORACLE — sinon le nom est utilisé"></div>
+      <div class="write-row"><label>Catégorie</label><input id="sqdCategory" type="text" value="${escAttr(squad.category || '')}" placeholder="Ex : Escadron d'élite"></div>
+      <div class="write-row"><label>Image de bannière (URL)</label><input id="sqdImage" type="url" value="${escAttr(squad.image || '')}" placeholder="https://…"></div>
+      <div class="write-row"><label>Logo / emblème (URL)</label><input id="sqdLogo" type="url" value="${escAttr(squad.logo || '')}" placeholder="https://…"></div>
+      <div class="write-row"><label>Musique de fond (URL)</label><input id="sqdMusic" type="url" value="${escAttr(squad.music || '')}" placeholder="Lien SoundCloud, fichier audio…"></div>
+      <div class="write-row">
+        <label>Texte du dossier (un paragraphe par bloc de lignes)</label>
+        <textarea id="sqdBody" rows="8">${esc((squad.body && squad.body.length ? squad.body : [squad.desc]).join('\n\n'))}</textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras, <code>[code]texte]</code> pour une archive verrouillée.</div>
+      </div>
+      <div class="write-error" id="sqdError"></div>
+      <span class="btn btn-primary" onclick="saveSquadDossier('${id}')">Enregistrer</span>
+      <span class="btn btn-ghost" onclick="toggleSquadDossierEditMode('${id}')">Annuler</span>
+    </div>` : `
+    <div class="dossier-file">
+      <div class="dossier-file-top">
+        <div class="dossier-file-num">DOSSIER · ESCADRON — DOC-${docCode}</div>
+        <div class="dstamp-big dstamp-mid">${esc((squad.category || 'ESCADRON').toUpperCase())}</div>
+      </div>
+      <h1 class="dossier-file-title">${esc(squad.name)}</h1>
+      ${musicBarHtml(squad.id, squad.music)}
+      <div class="dossier-file-body">
+        <div class="dossier-file-main">
+          ${squad.body && squad.body.length ? renderRichBody(squad.body) : `<p>${esc(squad.desc)}</p>`}
+          <div class="dossier-file-end">FIN DE LA PRÉSENTATION</div>
+        </div>
+        <div class="dossier-file-side">
+          ${squad.image ? `<div class="dossier-file-media"><img src="${encodeURI(squad.image)}" alt=""></div>` : `<div class="dossier-file-media dossier-file-noimg">IMAGE INDISPONIBLE</div>`}
+          ${squad.logo ? `<div class="dossier-file-media"><img src="${encodeURI(squad.logo)}" alt=""></div>` : ''}
+        </div>
+      </div>
+    </div>
+    ${isLoggedIn() ? `<span class="btn btn-ghost halcyon-edit-toggle" onclick="toggleSquadDossierEditMode('${id}')">✎ Modifier</span>` : ''}
+    `}
+
+    <div class="section-title"><h2>Effectif</h2></div>
+    ${renderSquadRoster(squad)}
+  `;
+}
 function renderSquads() {
     const squads = getAllSquads();
     return `
-    <div class="squad-list">
-      ${squads.map(s => `
-        <div class="squad-card">
-          <div class="squad-card-name">${esc(s.name)}</div>
-          <p class="squad-card-desc">${esc(s.desc)}</p>
-          ${renderSquadRoster(s)}
-          ${(halcyonEditMode && !SQUADS.some(base => base.id === s.id)) ? `<span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet escadron ?')){ deleteHalcyonSquad('${s.id}'); }">Supprimer l'escadron</span>` : ''}
-        </div>`).join('')}
-      ${halcyonEditMode ? `
-      <div class="write-form halcyon-edit-panel" style="max-width:480px;">
-        <div class="write-row"><label>Nom de l'escadron</label><input id="hsqName" type="text" placeholder="Ex : Escadron Némésis"></div>
-        <div class="write-row"><label>Description</label><textarea id="hsqDesc" rows="3" placeholder="Courte description de l'escadron…"></textarea></div>
-        <div class="write-error" id="hsqError"></div>
-        <span class="btn btn-primary" onclick="addHalcyonSquad()">+ Ajouter un escadron</span>
-      </div>` : ''}
+    <div class="squad-grid">
+      ${squads.map(s => {
+        const isCustom = !SQUADS.some(base => base.id === s.id);
+        const tag = (s.tag || s.name).toUpperCase();
+        return `
+        <div class="squad-dossier-card" onclick="navigate('escadron-${s.id}')">
+          ${halcyonEditMode && isCustom ? `<span class="squad-dossier-card-remove" onclick="event.stopPropagation(); if(confirm('Supprimer définitivement cet escadron ?')){ deleteHalcyonSquad('${s.id}'); }">✕</span>` : ''}
+          <div class="squad-dossier-banner"${s.image ? ` style="background-image:url('${encodeURI(s.image)}')"` : ''}>
+            <span class="squad-dossier-tag">${esc(tag)}</span>
+          </div>
+          <div class="squad-dossier-card-body">
+            <div class="squad-dossier-card-head">
+              <div>
+                <div class="squad-dossier-card-name">${esc(s.name)}</div>
+                ${s.category ? `<div class="squad-dossier-card-category">${esc(s.category.toUpperCase())}</div>` : ''}
+              </div>
+              <div class="squad-dossier-card-logo">${s.logo ? `<img src="${encodeURI(s.logo)}" alt="">` : esc(s.name.charAt(0))}</div>
+            </div>
+            <p class="squad-dossier-card-desc">${esc(s.desc)}</p>
+            <span class="squad-dossier-card-link">Consulter le dossier →</span>
+          </div>
+        </div>`;
+    }).join('')}
     </div>
+    ${halcyonEditMode ? `
+    <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+      <div class="write-row"><label>Nom de l'escadron</label><input id="hsqName" type="text" placeholder="Ex : Escadron Némésis"></div>
+      <div class="write-row"><label>Description</label><textarea id="hsqDesc" rows="3" placeholder="Courte description de l'escadron…"></textarea></div>
+      <div class="write-error" id="hsqError"></div>
+      <span class="btn btn-primary" onclick="addHalcyonSquad()">+ Ajouter un escadron</span>
+      <div class="write-hint">Les détails complets (image, logo, catégorie, musique, texte du dossier) se modifient depuis la page du dossier une fois l'escadron créé.</div>
+    </div>` : ''}
   `;
 }
 function renderHalcyonPage() {
@@ -5225,7 +5352,7 @@ function render() {
     if (route !== 'mission')
         stopMissionHud();
     if (route === 'home') ensureNewsTvDock(); else removeNewsTvDock();
-    const isHalcyonSection = route === 'halcyon' || route === 'armes' || route.startsWith('arme-') || route === 'archives-corrompues';
+    const isHalcyonSection = route === 'halcyon' || route === 'armes' || route.startsWith('arme-') || route === 'archives-corrompues' || route.startsWith('escadron-');
     setHalcyonImmersive(isHalcyonSection);
     setMusicContext(isHalcyonSection ? 'halcyon' : 'menu');
     if (!isHalcyonSection)
@@ -5265,7 +5392,6 @@ function render() {
     else if (route === 'halcyon') {
         dockHalcyonLogoImmediate();
         content.innerHTML = renderHalcyonPage();
-        getAllSquads().forEach(s => initRosterStage(s.id));
     }
     else if (route === 'armes') {
         playDossierBoot(() => renderArmesArchive());
@@ -5273,6 +5399,25 @@ function render() {
     else if (route.startsWith('arme-')) {
         dockHalcyonLogoImmediate();
         content.innerHTML = renderArmeDossier(route.replace('arme-', ''));
+    }
+    else if (route.startsWith('escadron-')) {
+        dockHalcyonLogoImmediate();
+        const squadId = route.replace('escadron-', '');
+        const stablePlayerId = 'em-' + squadId;
+        const oldSquadPlayer = document.getElementById(stablePlayerId);
+        content.innerHTML = renderSquadDossier(squadId);
+        initRosterStage(squadId);
+        const newSquadPlayer = document.getElementById(stablePlayerId);
+        let squadPlayerPreserved = false;
+        if (oldSquadPlayer && newSquadPlayer && oldSquadPlayer.dataset.kind === newSquadPlayer.dataset.kind) {
+            const oldSrc = oldSquadPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            const newSrc = newSquadPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            if (oldSrc && oldSrc === newSrc) {
+                newSquadPlayer.replaceWith(oldSquadPlayer);
+                squadPlayerPreserved = true;
+            }
+        }
+        if (!squadPlayerPreserved) initEntryMusicPlayers();
     }
     else if (route === 'archives-corrompues') {
         dockHalcyonLogoImmediate();
@@ -5513,7 +5658,7 @@ function setMusicContext(ctx) {
     const titleEl = document.getElementById('musicTitle');
     if (titleEl)
         titleEl.textContent = ctx === 'halcyon' ? 'Halcyon — Système' : 'Thème du monde';
-    if (wasPlaying || ctx === 'halcyon') {
+    if (wasPlaying) {
         audio.play().catch(err => { console.error('Lecture audio bloquée par le navigateur:', err); });
     }
 }
