@@ -4122,14 +4122,38 @@ function openLeakFileWindow(v) {
         document.body.appendChild(modal);
     }
     const img = v.image ? (v.image.startsWith('data:') ? v.image : encodeURI(v.image)) : '';
+    const refCode = String((parseInt(simpleHash(v.title), 36) % 900) + 100);
     modal.innerHTML = `
-    <div class="leak-file-window-box${img ? ' has-media' : ''}">
+    <div class="leak-file-window-box dossier-style">
       <button type="button" class="leak-file-window-close" onclick="closeLeakFileWindow()" aria-label="Fermer">✕</button>
-      ${img ? `<div class="leak-file-window-media"><img src="${img}" alt=""></div>` : ''}
-      <div class="leak-file-window-body">
-        <div class="leak-file-window-cat">${esc(v.category)}</div>
-        <div class="leak-file-window-title">${esc(v.title)}</div>
-        <p class="leak-file-window-line">${esc(v.line)}</p>
+      <div class="dossier-scene">
+        <div class="dossier-badge-card">
+          <div class="dossier-badge-clip"></div>
+          ${img ? `<div class="dossier-badge-img-wrap"><img src="${img}" alt=""></div>` : `<div class="dossier-badge-noimg">◆</div>`}
+          <div class="dossier-badge-info">
+            <div class="dossier-badge-name">${esc(v.title)}</div>
+            <span class="dossier-badge-tag">${esc(v.category)}</span>
+          </div>
+        </div>
+        <div class="dossier-form-paper">
+          <div class="dossier-form-header">
+            <span class="dossier-form-logo">◆</span>
+            <span class="dossier-form-title">Fiche d'évaluation Halcyon</span>
+          </div>
+          <div class="dossier-form-fields">
+            <div><b>Sujet</b>${esc(v.title)}</div>
+            <div><b>Catégorie</b>${esc(v.category)}</div>
+          </div>
+          <div class="dossier-form-table">
+            <div class="dossier-form-row head"><span>Évaluation</span><span>Statut</span></div>
+            <div class="dossier-form-row"><span>Habilitation requise</span><span class="dossier-form-rating">Ω</span></div>
+          </div>
+          <div class="dossier-form-comment">${esc(v.line)}</div>
+          <div class="dossier-form-footer">
+            <span>Chef de département : Halcyon</span>
+            <span>DOC-${refCode}</span>
+          </div>
+        </div>
       </div>
     </div>
   `;
