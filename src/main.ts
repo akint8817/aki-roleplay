@@ -858,7 +858,14 @@ let customPagesCache: CustomNavPage[] = [];
 let customChronoCache: CustomChronoEvent[] = [];
 let wfImagesDraft: EntryImage[] = [];
 let halcyonInfoCache: HalcyonInfo = { dirigeant: '', dirigeantDesc: '' };
-let halcyonFeaturedMembersCache: HalcyonFeaturedMember[] = [];
+// Personnages ajoutés (en plus de ceux déjà écrits dans le code) à un palier
+// de la hiérarchie ou à l'effectif d'un escadron — voir renderOrgTree et
+// renderSquadRoster.
+let halcyonTierMembersCache: HalcyonRosterLink[] = [];
+let halcyonSquadMembersCache: HalcyonRosterLink[] = [];
+// Escadrons créés depuis le site, en plus de ceux écrits dans le code (voir
+// SQUADS) — voir getAllSquads.
+let customSquadsCache: Squad[] = [];
 // Bascule l'édition inline sur la page Halcyon (bouton "Modifier", visible
 // seulement pour un utilisateur connecté) — voir renderHalcyonPage.
 let halcyonEditMode = false;
@@ -892,7 +899,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hfmSelect'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1006,17 +1013,41 @@ function initFirestoreSync(): void {
     restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (halcyonInfo) :', err));
 
-  db.collection('halcyonFeaturedMembers').onSnapshot((snap: any) => {
-    const list: HalcyonFeaturedMember[] = [];
+  db.collection('halcyonTierMembers').onSnapshot((snap: any) => {
+    const list: HalcyonRosterLink[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, entryId: data.entryId });
+      list.push({ id: doc.id, groupId: data.tierId, entryId: data.entryId });
     });
-    halcyonFeaturedMembersCache = list;
+    halcyonTierMembersCache = list;
     const draft = captureDraftFormState();
     render();
     restoreDraftFormState(draft);
-  }, (err: any) => console.error('Firestore (halcyonFeaturedMembers) :', err));
+  }, (err: any) => console.error('Firestore (halcyonTierMembers) :', err));
+
+  db.collection('halcyonSquadMembers').onSnapshot((snap: any) => {
+    const list: HalcyonRosterLink[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, groupId: data.squadId, entryId: data.entryId });
+    });
+    halcyonSquadMembersCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (halcyonSquadMembers) :', err));
+
+  db.collection('halcyonSquads').onSnapshot((snap: any) => {
+    const list: Squad[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, name: data.name, desc: data.desc || '' });
+    });
+    customSquadsCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (halcyonSquads) :', err));
 }
 
 function getCustomEntriesRaw(): CustomEntry[] {
@@ -1537,7 +1568,10 @@ function deleteChronoEvent(id: string): void {
 /* ---------------- COMPTE — photo de profil et onglets de navigation personnalisés ---------------- */
 interface CustomNavPage { id: string; label: string; body: string[]; }
 interface HalcyonInfo { dirigeant: string; dirigeantDesc: string; }
-interface HalcyonFeaturedMember { id: string; entryId: string; }
+// Lien "ce personnage appartient à ce groupe" — groupId est un id de palier
+// de hiérarchie (voir HALCYON_HIERARCHY) ou d'escadron (voir SQUADS) selon la
+// collection Firestore utilisée (halcyonTierMembers / halcyonSquadMembers).
+interface HalcyonRosterLink { id: string; groupId: string; entryId: string; }
 const AVATAR_KEY = 'akiAvatar';
 
 function avatarKey(): string {
@@ -1631,25 +1665,77 @@ function saveHalcyonDirigeant(): void {
     .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 
-// Cartes de personnages clés affichées sur la page Halcyon : on choisit un
-// personnage déjà existant (fiche écrite dans le code ou par un membre) au
-// lieu de retaper un nom/une description à la main.
-function addHalcyonFeaturedMember(): void {
-  const selectEl = document.getElementById('hfmSelect') as HTMLSelectElement | null;
-  const errEl = document.getElementById('hfmError');
+// Ajoute un personnage déjà existant (fiche écrite dans le code ou par un
+// membre) à un palier de la hiérarchie Halcyon (voir renderOrgTree), en plus
+// de ceux déjà écrits en dur dans HALCYON_HIERARCHY.
+function addHalcyonTierMember(tierId: string): void {
+  const selectEl = document.getElementById('htmSelect-' + tierId) as HTMLSelectElement | null;
+  const errEl = document.getElementById('htmError-' + tierId);
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const entryId = selectEl?.value || '';
   if(!entryId){ if(errEl) errEl.textContent = 'Choisis un personnage.'; return; }
   if(errEl) errEl.textContent = '';
-  db.collection('halcyonFeaturedMembers').add({ entryId })
+  db.collection('halcyonTierMembers').add({ tierId, entryId })
     .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 
-function deleteHalcyonFeaturedMember(id: string): void {
+function deleteHalcyonTierMember(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
-  db.collection('halcyonFeaturedMembers').doc(id).delete();
+  db.collection('halcyonTierMembers').doc(id).delete();
+}
+
+// Ajoute un personnage déjà existant au carrousel d'un escadron (voir
+// renderSquadRoster), en plus de ceux déjà rattachés à l'escadron via leur
+// champ "squad" (fiches écrites dans le code).
+function addHalcyonSquadMember(squadId: string): void {
+  const selectEl = document.getElementById('hsmSelect-' + squadId) as HTMLSelectElement | null;
+  const errEl = document.getElementById('hsmError-' + squadId);
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const entryId = selectEl?.value || '';
+  if(!entryId){ if(errEl) errEl.textContent = 'Choisis un personnage.'; return; }
+  if(errEl) errEl.textContent = '';
+  db.collection('halcyonSquadMembers').add({ squadId, entryId })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function deleteHalcyonSquadMember(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('halcyonSquadMembers').doc(id).delete();
+}
+
+// Crée un nouvel escadron (en plus de ceux écrits dans le code, voir SQUADS).
+function addHalcyonSquad(): void {
+  const nameEl = document.getElementById('hsqName') as HTMLInputElement | null;
+  const descEl = document.getElementById('hsqDesc') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('hsqError');
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const name = (nameEl?.value || '').trim();
+  const desc = (descEl?.value || '').trim();
+  if(!name){ if(errEl) errEl.textContent = "Donne un nom à l'escadron."; return; }
+  if(errEl) errEl.textContent = '';
+  db.collection('halcyonSquads').add({ name, desc })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function deleteHalcyonSquad(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('halcyonSquads').doc(id).delete();
+}
+
+// Toutes les fiches personnage existantes (code + écrites par un membre),
+// utilisées pour peupler les menus déroulants d'ajout ci-dessus.
+function allCharacterEntries(): Entry[] {
+  return ENTRIES.filter(e => e.cat === 'personnages');
+}
+
+function getAllSquads(): Squad[] {
+  return [...SQUADS, ...customSquadsCache];
 }
 
 function renderCustomPage(id: string): string {
@@ -3589,19 +3675,40 @@ function initNewsIntro(): void {
 function renderOrgTree(): string {
   return `
     <div class="org-tree">
-      ${HALCYON_HIERARCHY.map(tier=>`
+      ${HALCYON_HIERARCHY.map(tier=>{
+        const customMembers = halcyonTierMembersCache.filter(m=>m.groupId===tier.id);
+        const hasAny = tier.memberIds.length || customMembers.length;
+        const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !tier.memberIds.includes(e.id) && !customMembers.some(m=>m.entryId===e.id)) : [];
+        return `
         <div class="org-tier-box">
           <div class="org-tier-label">${esc(tier.label)}</div>
           <p class="org-tier-desc">${esc(tier.desc)}</p>
           <div class="org-tier-members">
-            ${tier.memberIds.length
-              ? tier.memberIds.map(id=>{
-                  const e = findEntry(id);
-                  return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
-                }).join('')
+            ${hasAny
+              ? [
+                  ...tier.memberIds.map(id=>{
+                    const e = findEntry(id);
+                    return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
+                  }),
+                  ...customMembers.map(m=>{
+                    const e = findEntry(m.entryId);
+                    if(!e) return '';
+                    return `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); deleteHalcyonTierMember('${m.id}')">✕</span>` : ''}</span>`;
+                  }),
+                ].join('')
               : `<span class="org-tier-empty">Aucun personnage recensé pour l'instant.</span>`}
           </div>
-        </div>`).join('')}
+          ${halcyonEditMode ? `
+          <div class="halcyon-inline-add-row">
+            <select id="htmSelect-${tier.id}">
+              <option value="">— Ajouter un personnage —</option>
+              ${candidates.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+            </select>
+            <span class="btn btn-ghost btn-sm" onclick="addHalcyonTierMember('${tier.id}')">+ Ajouter</span>
+          </div>
+          <div class="write-error" id="htmError-${tier.id}"></div>` : ''}
+        </div>`;
+      }).join('')}
     </div>
   `;
 }
@@ -3610,8 +3717,17 @@ function renderOrgTree(): string {
 // l'aperçu, clic pour zoomer) que la page Personnages, simplement filtré sur son
 // propre effectif plutôt que sur une faction entière.
 function renderSquadRoster(squad: Squad): string {
-  const list = ENTRIES.filter(e => e.cat==='personnages' && e.squad===squad.id);
+  const customMembers = halcyonSquadMembersCache.filter(m=>m.groupId===squad.id);
+  const baseList = ENTRIES.filter(e => e.cat==='personnages' && e.squad===squad.id);
+  const seen = new Set(baseList.map(e=>e.id));
+  const customEntries: { link: HalcyonRosterLink; entry: Entry }[] = [];
+  customMembers.forEach(link=>{
+    const e = findEntry(link.entryId);
+    if(e && !seen.has(e.id)){ customEntries.push({ link, entry: e }); seen.add(e.id); }
+  });
+  const list = [...baseList, ...customEntries.map(c=>c.entry)];
   rosterState = { factionId: squad.id, list, selected: 0 };
+  const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !seen.has(e.id)) : [];
   return `
     <div class="roster-page no-rail">
       <div class="roster-main">
@@ -3632,18 +3748,37 @@ function renderSquadRoster(squad: Squad): string {
         </div>
         <div class="roster-bubble" id="rosterBubble"></div>
       </div>
+      ${halcyonEditMode ? `
+      <div class="halcyon-inline-add-row">
+        <select id="hsmSelect-${squad.id}">
+          <option value="">— Ajouter un personnage au carrousel —</option>
+          ${candidates.map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+        </select>
+        <span class="btn btn-ghost btn-sm" onclick="addHalcyonSquadMember('${squad.id}')">+ Ajouter</span>
+      </div>
+      <div class="write-error" id="hsmError-${squad.id}"></div>
+      ${customEntries.length ? `<div class="halcyon-inline-list">${customEntries.map(c=>`<span class="org-tier-chip">${esc(c.entry.name)} <span class="org-tier-chip-remove" onclick="deleteHalcyonSquadMember('${c.link.id}')">✕</span></span>`).join('')}</div>` : ''}` : ''}
     </div>`;
 }
 
 function renderSquads(): string {
+  const squads = getAllSquads();
   return `
     <div class="squad-list">
-      ${SQUADS.map(s=>`
+      ${squads.map(s=>`
         <div class="squad-card">
           <div class="squad-card-name">${esc(s.name)}</div>
           <p class="squad-card-desc">${esc(s.desc)}</p>
           ${renderSquadRoster(s)}
+          ${(halcyonEditMode && !SQUADS.some(base=>base.id===s.id)) ? `<span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet escadron ?')){ deleteHalcyonSquad('${s.id}'); }">Supprimer l'escadron</span>` : ''}
         </div>`).join('')}
+      ${halcyonEditMode ? `
+      <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+        <div class="write-row"><label>Nom de l'escadron</label><input id="hsqName" type="text" placeholder="Ex : Escadron Némésis"></div>
+        <div class="write-row"><label>Description</label><textarea id="hsqDesc" rows="3" placeholder="Courte description de l'escadron…"></textarea></div>
+        <div class="write-error" id="hsqError"></div>
+        <span class="btn btn-primary" onclick="addHalcyonSquad()">+ Ajouter un escadron</span>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3697,31 +3832,6 @@ function renderHalcyonPage(): string {
 
       <div class="section-title"><h2>Escadrons</h2></div>
       ${renderSquads()}
-
-      ${(halcyonFeaturedMembersCache.length || halcyonEditMode) ? `
-      <div class="section-title"><h2>Personnages clés</h2></div>
-      ${halcyonEditMode ? `
-      <div class="halcyon-add-member-row">
-        <select id="hfmSelect">
-          <option value="">— Choisir un personnage —</option>
-          ${ENTRIES.filter(e => e.cat==='personnages' && !halcyonFeaturedMembersCache.some(m=>m.entryId===e.id)).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}
-        </select>
-        <span class="btn btn-primary" onclick="addHalcyonFeaturedMember()">+ Ajouter une carte</span>
-      </div>
-      <div class="write-error" id="hfmError"></div>` : ''}
-      <div class="halcyon-faction-cards">
-        ${halcyonFeaturedMembersCache.map(m=>{
-          const e = findEntry(m.entryId);
-          if(!e) return '';
-          return `
-          <div class="halcyon-faction-card${halcyonEditMode ? '' : ' clickable'}"${halcyonEditMode ? '' : ` onclick="navigate('entry-${e.id}')"`}>
-            ${halcyonEditMode ? `<span class="halcyon-faction-card-remove" onclick="event.stopPropagation(); deleteHalcyonFeaturedMember('${m.id}')">✕</span>` : ''}
-            ${e.image ? `<img class="halcyon-faction-card-img" src="${encodeURI(e.image)}" alt="">` : ''}
-            <div class="halcyon-faction-card-name">${esc(e.name)}</div>
-            <p class="halcyon-faction-card-desc">${esc(e.tagline||'')}</p>
-          </div>`;
-        }).join('')}
-      </div>` : ''}
 
       <div class="halcyon-archive-card" onclick="navigate('armes')">
         <img class="halcyon-archive-card-logo" src="${encodeURI(HALCYON_LOGO)}" alt="">

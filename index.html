@@ -1456,6 +1456,8 @@ h1,h2,h3,h4{
   color:#e0857c; cursor:pointer; transition: background .15s ease, border-color .15s ease;
 }
 .org-tier-chip:hover{ background: rgba(107,47,42,0.2); border-color:#e0857c; }
+.org-tier-chip-remove{ margin-left:4px; opacity:0.7; }
+.org-tier-chip-remove:hover{ opacity:1; }
 .org-tier-empty{ font-size:11.5px; color: var(--text-dim); font-style:italic; }
 
 /* ---- Escadrons Halcyon ---- */
@@ -1464,22 +1466,11 @@ h1,h2,h3,h4{
 .squad-card-name{ font-family:'Cinzel', serif; font-size:19px; color:#f0ebdc; margin-bottom:6px; }
 .squad-card-desc{ font-size:12.5px; color: var(--text-dim); line-height:1.7; margin-bottom:16px; max-width:72ch; }
 
-/* ---- Personnages clés (page Halcyon) ---- */
-.halcyon-add-member-row{ display:flex; gap:10px; align-items:center; margin-bottom:14px; flex-wrap:wrap; }
-.halcyon-add-member-row select{ background: var(--surface); color: var(--text); border:1px solid var(--border); padding:8px 10px; font-family: inherit; font-size:13px; }
-.halcyon-faction-cards{ display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:16px; margin-bottom:34px; }
-.halcyon-faction-card{ position:relative; border:1px solid var(--border); background: var(--surface); padding:18px 20px; transition: border-color .15s ease; }
-.halcyon-faction-card.clickable{ cursor:pointer; }
-.halcyon-faction-card.clickable:hover{ border-color:#b25a52; }
-.halcyon-faction-card-img{ width:44px; height:44px; object-fit:cover; border-radius:50%; margin-bottom:10px; border:1px solid var(--border); }
-.halcyon-faction-card-name{ font-family:'Cinzel', serif; font-size:16px; color:#f0ebdc; margin-bottom:8px; }
-.halcyon-faction-card-desc{ font-size:12.5px; color: var(--text-dim); line-height:1.7; }
-.halcyon-faction-card-remove{
-  position:absolute; top:8px; right:8px; width:20px; height:20px; display:flex; align-items:center; justify-content:center;
-  border-radius:50%; background: rgba(0,0,0,0.4); color: var(--text-dim); font-size:11px; cursor:pointer;
-  transition: background .15s ease, color .15s ease;
-}
-.halcyon-faction-card-remove:hover{ background:#6b2f2a; color:#fff; }
+/* ---- Édition en place des effectifs Halcyon (hiérarchie / escadrons) ---- */
+.halcyon-inline-add-row{ display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap; }
+.halcyon-inline-add-row select{ background: var(--surface); color: var(--text); border:1px solid var(--border); padding:6px 10px; font-family: inherit; font-size:12.5px; }
+.halcyon-inline-list{ display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; }
+.btn-sm{ padding:5px 12px; font-size:11.5px; }
 
 .stats-row{
   position: relative;
@@ -3107,6 +3098,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=29"></script>
+<script src="dist/main.js?v=30"></script>
 </body>
 </html>

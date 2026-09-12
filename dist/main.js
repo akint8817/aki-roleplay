@@ -655,7 +655,9 @@ let customPagesCache = [];
 let customChronoCache = [];
 let wfImagesDraft = [];
 let halcyonInfoCache = { dirigeant: '', dirigeantDesc: '' };
-let halcyonFeaturedMembersCache = [];
+let halcyonTierMembersCache = [];
+let halcyonSquadMembersCache = [];
+let customSquadsCache = [];
 let halcyonEditMode = false;
 function getFirestoreDb() {
     return window.db || null;
@@ -674,7 +676,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hfmSelect'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc'];
 
 function captureDraftFormState() {
     const state = {};
@@ -781,17 +783,41 @@ function initFirestoreSync() {
         restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (halcyonInfo) :', err));
 
-    db.collection('halcyonFeaturedMembers').onSnapshot((snap) => {
+    db.collection('halcyonTierMembers').onSnapshot((snap) => {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, entryId: data.entryId });
+            list.push({ id: doc.id, groupId: data.tierId, entryId: data.entryId });
         });
-        halcyonFeaturedMembersCache = list;
+        halcyonTierMembersCache = list;
         const draft = captureDraftFormState();
         render();
         restoreDraftFormState(draft);
-    }, (err) => console.error('Firestore (halcyonFeaturedMembers) :', err));
+    }, (err) => console.error('Firestore (halcyonTierMembers) :', err));
+
+    db.collection('halcyonSquadMembers').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, groupId: data.squadId, entryId: data.entryId });
+        });
+        halcyonSquadMembersCache = list;
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (halcyonSquadMembers) :', err));
+
+    db.collection('halcyonSquads').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, name: data.name, desc: data.desc || '' });
+        });
+        customSquadsCache = list;
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (halcyonSquads) :', err));
 }
 function getCustomEntriesRaw() {
     return customEntriesCache;
@@ -1345,21 +1371,61 @@ function saveHalcyonDirigeant() {
     db.collection('halcyonInfo').doc('main').set({ dirigeant, dirigeantDesc })
         .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
-function addHalcyonFeaturedMember() {
-    const selectEl = document.getElementById('hfmSelect');
-    const errEl = document.getElementById('hfmError');
+function addHalcyonTierMember(tierId) {
+    const selectEl = document.getElementById('htmSelect-' + tierId);
+    const errEl = document.getElementById('htmError-' + tierId);
     const db = getFirestoreDb();
     if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
     const entryId = selectEl?.value || '';
     if (!entryId) { if (errEl) errEl.textContent = 'Choisis un personnage.'; return; }
     if (errEl) errEl.textContent = '';
-    db.collection('halcyonFeaturedMembers').add({ entryId })
+    db.collection('halcyonTierMembers').add({ tierId, entryId })
         .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
-function deleteHalcyonFeaturedMember(id) {
+function deleteHalcyonTierMember(id) {
     const db = getFirestoreDb();
     if (!db) return;
-    db.collection('halcyonFeaturedMembers').doc(id).delete();
+    db.collection('halcyonTierMembers').doc(id).delete();
+}
+function addHalcyonSquadMember(squadId) {
+    const selectEl = document.getElementById('hsmSelect-' + squadId);
+    const errEl = document.getElementById('hsmError-' + squadId);
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const entryId = selectEl?.value || '';
+    if (!entryId) { if (errEl) errEl.textContent = 'Choisis un personnage.'; return; }
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonSquadMembers').add({ squadId, entryId })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function deleteHalcyonSquadMember(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('halcyonSquadMembers').doc(id).delete();
+}
+function addHalcyonSquad() {
+    const nameEl = document.getElementById('hsqName');
+    const descEl = document.getElementById('hsqDesc');
+    const errEl = document.getElementById('hsqError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const name = (nameEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!name) { if (errEl) errEl.textContent = "Donne un nom à l'escadron."; return; }
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonSquads').add({ name, desc })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function deleteHalcyonSquad(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('halcyonSquads').doc(id).delete();
+}
+function allCharacterEntries() {
+    return ENTRIES.filter(e => e.cat === 'personnages');
+}
+function getAllSquads() {
+    return [...SQUADS, ...customSquadsCache];
 }
 function renderCustomPage(id) {
     const page = customPagesCache.find(p => p.id === id);
@@ -3130,25 +3196,55 @@ function initNewsIntro() {
 function renderOrgTree() {
     return `
     <div class="org-tree">
-      ${HALCYON_HIERARCHY.map(tier => `
+      ${HALCYON_HIERARCHY.map(tier => {
+        const customMembers = halcyonTierMembersCache.filter(m => m.groupId === tier.id);
+        const hasAny = tier.memberIds.length || customMembers.length;
+        const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !tier.memberIds.includes(e.id) && !customMembers.some(m => m.entryId === e.id)) : [];
+        return `
         <div class="org-tier-box">
           <div class="org-tier-label">${esc(tier.label)}</div>
           <p class="org-tier-desc">${esc(tier.desc)}</p>
           <div class="org-tier-members">
-            ${tier.memberIds.length
-        ? tier.memberIds.map(id => {
-            const e = findEntry(id);
-            return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
-        }).join('')
-        : `<span class="org-tier-empty">Aucun personnage recensé pour l'instant.</span>`}
+            ${hasAny
+            ? [
+                ...tier.memberIds.map(id => {
+                    const e = findEntry(id);
+                    return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
+                }),
+                ...customMembers.map(m => {
+                    const e = findEntry(m.entryId);
+                    if (!e) return '';
+                    return `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); deleteHalcyonTierMember('${m.id}')">✕</span>` : ''}</span>`;
+                }),
+            ].join('')
+            : `<span class="org-tier-empty">Aucun personnage recensé pour l'instant.</span>`}
           </div>
-        </div>`).join('')}
+          ${halcyonEditMode ? `
+          <div class="halcyon-inline-add-row">
+            <select id="htmSelect-${tier.id}">
+              <option value="">— Ajouter un personnage —</option>
+              ${candidates.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+            </select>
+            <span class="btn btn-ghost btn-sm" onclick="addHalcyonTierMember('${tier.id}')">+ Ajouter</span>
+          </div>
+          <div class="write-error" id="htmError-${tier.id}"></div>` : ''}
+        </div>`;
+    }).join('')}
     </div>
   `;
 }
 function renderSquadRoster(squad) {
-    const list = ENTRIES.filter(e => e.cat === 'personnages' && e.squad === squad.id);
+    const customMembers = halcyonSquadMembersCache.filter(m => m.groupId === squad.id);
+    const baseList = ENTRIES.filter(e => e.cat === 'personnages' && e.squad === squad.id);
+    const seen = new Set(baseList.map(e => e.id));
+    const customEntries = [];
+    customMembers.forEach(link => {
+        const e = findEntry(link.entryId);
+        if (e && !seen.has(e.id)) { customEntries.push({ link, entry: e }); seen.add(e.id); }
+    });
+    const list = [...baseList, ...customEntries.map(c => c.entry)];
     rosterState = { factionId: squad.id, list, selected: 0 };
+    const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !seen.has(e.id)) : [];
     return `
     <div class="roster-page no-rail">
       <div class="roster-main">
@@ -3169,17 +3265,36 @@ function renderSquadRoster(squad) {
         </div>
         <div class="roster-bubble" id="rosterBubble"></div>
       </div>
+      ${halcyonEditMode ? `
+      <div class="halcyon-inline-add-row">
+        <select id="hsmSelect-${squad.id}">
+          <option value="">— Ajouter un personnage au carrousel —</option>
+          ${candidates.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+        </select>
+        <span class="btn btn-ghost btn-sm" onclick="addHalcyonSquadMember('${squad.id}')">+ Ajouter</span>
+      </div>
+      <div class="write-error" id="hsmError-${squad.id}"></div>
+      ${customEntries.length ? `<div class="halcyon-inline-list">${customEntries.map(c => `<span class="org-tier-chip">${esc(c.entry.name)} <span class="org-tier-chip-remove" onclick="deleteHalcyonSquadMember('${c.link.id}')">✕</span></span>`).join('')}</div>` : ''}` : ''}
     </div>`;
 }
 function renderSquads() {
+    const squads = getAllSquads();
     return `
     <div class="squad-list">
-      ${SQUADS.map(s => `
+      ${squads.map(s => `
         <div class="squad-card">
           <div class="squad-card-name">${esc(s.name)}</div>
           <p class="squad-card-desc">${esc(s.desc)}</p>
           ${renderSquadRoster(s)}
+          ${(halcyonEditMode && !SQUADS.some(base => base.id === s.id)) ? `<span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet escadron ?')){ deleteHalcyonSquad('${s.id}'); }">Supprimer l'escadron</span>` : ''}
         </div>`).join('')}
+      ${halcyonEditMode ? `
+      <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+        <div class="write-row"><label>Nom de l'escadron</label><input id="hsqName" type="text" placeholder="Ex : Escadron Némésis"></div>
+        <div class="write-row"><label>Description</label><textarea id="hsqDesc" rows="3" placeholder="Courte description de l'escadron…"></textarea></div>
+        <div class="write-error" id="hsqError"></div>
+        <span class="btn btn-primary" onclick="addHalcyonSquad()">+ Ajouter un escadron</span>
+      </div>` : ''}
     </div>
   `;
 }
@@ -3232,31 +3347,6 @@ function renderHalcyonPage() {
 
       <div class="section-title"><h2>Escadrons</h2></div>
       ${renderSquads()}
-
-      ${(halcyonFeaturedMembersCache.length || halcyonEditMode) ? `
-      <div class="section-title"><h2>Personnages clés</h2></div>
-      ${halcyonEditMode ? `
-      <div class="halcyon-add-member-row">
-        <select id="hfmSelect">
-          <option value="">— Choisir un personnage —</option>
-          ${ENTRIES.filter(e => e.cat==='personnages' && !halcyonFeaturedMembersCache.some(m=>m.entryId===e.id)).map(e=>`<option value="${e.id}">${esc(e.name)}</option>`).join('')}
-        </select>
-        <span class="btn btn-primary" onclick="addHalcyonFeaturedMember()">+ Ajouter une carte</span>
-      </div>
-      <div class="write-error" id="hfmError"></div>` : ''}
-      <div class="halcyon-faction-cards">
-        ${halcyonFeaturedMembersCache.map(m => {
-          const e = findEntry(m.entryId);
-          if (!e) return '';
-          return `
-          <div class="halcyon-faction-card${halcyonEditMode ? '' : ' clickable'}"${halcyonEditMode ? '' : ` onclick="navigate('entry-${e.id}')"`}>
-            ${halcyonEditMode ? `<span class="halcyon-faction-card-remove" onclick="event.stopPropagation(); deleteHalcyonFeaturedMember('${m.id}')">✕</span>` : ''}
-            ${e.image ? `<img class="halcyon-faction-card-img" src="${encodeURI(e.image)}" alt="">` : ''}
-            <div class="halcyon-faction-card-name">${esc(e.name)}</div>
-            <p class="halcyon-faction-card-desc">${esc(e.tagline||'')}</p>
-          </div>`;
-        }).join('')}
-      </div>` : ''}
 
       <div class="halcyon-archive-card" onclick="navigate('armes')">
         <img class="halcyon-archive-card-logo" src="${encodeURI(HALCYON_LOGO)}" alt="">
