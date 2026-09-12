@@ -4505,7 +4505,7 @@ function novelanceRingBuildings(cx, cy, rInner, rOuter, color, angStepDeg, radia
     }
     return pieces;
 }
-function novelanceScatterBuildings(poly, color, count, seed, baseHeight, districtId, ruined) {
+function novelanceScatterBuildings(poly, color, count, seed, baseHeight, districtId, cx, cy, rotation, ruined) {
     let s = seed;
     const rand = () => { s = (s * 1103515245 + 12345) & 0x7fffffff; return (s % 1000) / 1000; };
     const xs = poly.map(p => p[0]), ys = poly.map(p => p[1]);
@@ -4517,11 +4517,13 @@ function novelanceScatterBuildings(poly, color, count, seed, baseHeight, distric
         const x = minX + rand() * (maxX - minX), y = minY + rand() * (maxY - minY);
         if (!novelancePointInPolygon([x, y], poly)) continue;
         const w = 9 + rand() * 15, hlen = 9 + rand() * 15;
-        const corners = [[x - w / 2, y - hlen / 2], [x + w / 2, y - hlen / 2], [x + w / 2, y + hlen / 2], [x - w / 2, y + hlen / 2]];
+        const corners = [[x - w / 2, y - hlen / 2], [x + w / 2, y - hlen / 2], [x + w / 2, y + hlen / 2], [x - w / 2, y + hlen / 2]]
+            .map(p => novelanceRotatePoint(p[0], p[1], cx, cy, rotation));
+        const [rx, ry] = novelanceRotatePoint(x, y, cx, cy, rotation);
         const shade = 0.72 + rand() * 0.42;
         if (ruined && rand() < 0.4) {
             const flat = corners.map(p => novelanceIsoProject(p[0], p[1], 0));
-            pieces.push({ key: x + y, svg: `<polygon points="${flat.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.5" pointer-events="none"/>` });
+            pieces.push({ key: rx + ry, svg: `<polygon points="${flat.map(p => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ')}" fill="none" stroke="${novelanceShade(color, shade)}" stroke-width="1.2" opacity="0.5" pointer-events="none"/>` });
             placed++;
             continue;
         }
@@ -4568,6 +4570,14 @@ function novelanceMapSvg(rotation = 0) {
         [[-320, 420], [-190, 340], [-60, 400], [-90, 540], [-260, 560]],
         [[880, 760], [1040, 700], [1180, 780], [1120, 900], [940, 880]],
         [[300, 900], [460, 860], [540, 950], [460, 1040], [300, 1020]],
+        [[1050, 120], [1220, 60], [1320, 180], [1260, 320], [1100, 280]],
+        [[-420, -160], [-260, -220], [-140, -160], [-190, -40], [-360, -20]],
+        [[-440, 260], [-320, 200], [-220, 260], [-260, 380], [-400, 400]],
+        [[1080, 460], [1240, 420], [1300, 540], [1200, 640], [1060, 580]],
+        [[560, -200], [720, -260], [820, -160], [740, -60], [600, -80]],
+        [[-160, 780], [20, 720], [100, 820], [20, 940], [-140, 900]],
+        [[820, 1000], [980, 940], [1080, 1040], [980, 1140], [820, 1100]],
+        [[-460, 540], [-380, 620], [-460, 720], [-560, 660], [-560, 560]],
     ];
     const terrainPatches = terrainPatchesData.map((pts, i) => {
         const c = i % 2 === 0 ? '#3c4a34' : '#2f3a2e';
@@ -4582,11 +4592,12 @@ function novelanceMapSvg(rotation = 0) {
     </g>`).join('');
     const industriePoly = [[685, 300], [790, 255], [865, 285], [885, 340], [860, 400], [885, 460], [865, 520], [790, 548], [685, 500]];
     const ruinesPoly = [[150, 560], [232, 518], [322, 540], [382, 582], [420, 650], [400, 720], [318, 742], [216, 720], [146, 680], [120, 618]];
-    const industriePolyRot = industriePoly.map(p => novelanceRotatePoint(p[0], p[1], cx, cy, rotation));
-    const ruinesPolyRot = ruinesPoly.map(p => novelanceRotatePoint(p[0], p[1], cx, cy, rotation));
     const reliefHillsData = [
         [-160, -60, 150, 26], [980, -140, 170, 32], [-220, 480, 140, 22],
         [960, 780, 160, 28], [360, 960, 130, 20], [-40, -260, 120, 18],
+        [1160, 220, 140, 24], [-380, 140, 120, 20], [1120, 600, 150, 26],
+        [-300, 900, 150, 24], [700, 1080, 140, 22], [-120, 1060, 110, 18],
+        [1220, -40, 110, 16], [200, -220, 100, 16], [-260, 720, 100, 14],
     ];
     const reliefHills = reliefHillsData.map(([x, y, radius, height], i) => {
         const n = 8;
@@ -4606,8 +4617,8 @@ function novelanceMapSvg(rotation = 0) {
         ...novelanceRingBuildings(cx, cy, r1, r2, '#c97f42', 14, 2, 37, 42, 'intermediaires', rotation, false, 0.3),
         ...novelanceRingBuildings(cx, cy, r2, r3, '#6d7178', 12, 2, 53, 28, 'populaires', rotation, false, 0.25),
         ...novelanceRingBuildings(cx, cy, r3, r4, '#5a6b4a', 10, 1, 61, 15, 'faubourgs', rotation, false, 0.1),
-        ...novelanceScatterBuildings(industriePolyRot, '#5c7789', 40, 71, 34, 'industrielle'),
-        ...novelanceScatterBuildings(ruinesPolyRot, '#4a2c37', 30, 89, 14, 'ruines', true),
+        ...novelanceScatterBuildings(industriePoly, '#5c7789', 40, 71, 34, 'industrielle', cx, cy, rotation),
+        ...novelanceScatterBuildings(ruinesPoly, '#4a2c37', 30, 89, 14, 'ruines', cx, cy, rotation, true),
     ];
     buildingPieces.sort((a, b) => a.key - b.key);
     const buildingsSvg = buildingPieces.map(p => p.svg).join('');
