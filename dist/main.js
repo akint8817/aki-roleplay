@@ -666,6 +666,10 @@ function getFirestoreDb() {
 
 const IMAGE_BUDGET_BYTES = 700 * 1024;
 
+const SQUAD_IMAGE_BUDGET_BYTES = 900 * 1024;
+let sqdImageDraft = '';
+let sqdLogoDraft = '';
+
 function estimateImageBytes(dataUrl) {
     const commaIdx = dataUrl.indexOf(',');
     const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx + 1) : dataUrl;
@@ -677,7 +681,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdImage', 'sqdLogo', 'sqdMusic', 'sqdBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -1094,6 +1098,43 @@ function removeWfImage(i) {
     wfImagesDraft.splice(i, 1);
     refreshWfImagesList();
 }
+function handleSquadDossierImage(input, field) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const other = field === 'image' ? sqdLogoDraft : sqdImageDraft;
+    const remaining = SQUAD_IMAGE_BUDGET_BYTES - (other ? estimateImageBytes(other) : 0);
+    if (file.size > remaining) {
+        const remainingKo = Math.max(0, Math.floor(remaining / 1024));
+        alert(`Image trop lourde : il reste environ ${remainingKo} Ko disponibles (bannière et logo partagent le même budget).`);
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        if (field === 'image') sqdImageDraft = reader.result;
+        else sqdLogoDraft = reader.result;
+        input.value = '';
+        refreshSquadDossierImagePreviews();
+    };
+    reader.readAsDataURL(file);
+}
+function removeSquadDossierImage(field) {
+    if (field === 'image') sqdImageDraft = '';
+    else sqdLogoDraft = '';
+    refreshSquadDossierImagePreviews();
+}
+function squadImagePreviewHtml(field) {
+    const val = field === 'image' ? sqdImageDraft : sqdLogoDraft;
+    return val
+        ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeSquadDossierImage('${field}')">Retirer</span></div>`
+        : '';
+}
+function refreshSquadDossierImagePreviews() {
+    const imgWrap = document.getElementById('sqdImagePreview');
+    if (imgWrap) imgWrap.innerHTML = squadImagePreviewHtml('image');
+    const logoWrap = document.getElementById('sqdLogoPreview');
+    if (logoWrap) logoWrap.innerHTML = squadImagePreviewHtml('logo');
+}
 function onWfFactionSelectChange() {
     const select = document.getElementById('wfFactionSelect');
     const input = document.getElementById('wfFaction');
@@ -1457,8 +1498,6 @@ function saveSquadDossier(id) {
     const descEl = document.getElementById('sqdDesc');
     const tagEl = document.getElementById('sqdTag');
     const categoryEl = document.getElementById('sqdCategory');
-    const imageEl = document.getElementById('sqdImage');
-    const logoEl = document.getElementById('sqdLogo');
     const musicEl = document.getElementById('sqdMusic');
     const bodyEl = document.getElementById('sqdBody');
     const errEl = document.getElementById('sqdError');
@@ -1473,8 +1512,8 @@ function saveSquadDossier(id) {
         name, desc,
         tag: (tagEl?.value || '').trim(),
         category: (categoryEl?.value || '').trim(),
-        image: (imageEl?.value || '').trim(),
-        logo: (logoEl?.value || '').trim(),
+        image: sqdImageDraft,
+        logo: sqdLogoDraft,
         music: (musicEl?.value || '').trim(),
         body,
     }, { merge: true })
@@ -1482,7 +1521,13 @@ function saveSquadDossier(id) {
         .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 function toggleSquadDossierEditMode(id) {
-    squadDossierEditId = squadDossierEditId === id ? null : id;
+    const wasEditingThis = squadDossierEditId === id;
+    squadDossierEditId = wasEditingThis ? null : id;
+    if (!wasEditingThis) {
+        const squad = getAllSquads().find(s => s.id === id);
+        sqdImageDraft = squad?.image || '';
+        sqdLogoDraft = squad?.logo || '';
+    }
     render();
 }
 function renderCustomPage(id) {
@@ -3368,8 +3413,16 @@ function renderSquadDossier(id) {
       <div class="write-row"><label>Résumé (carte de la liste)</label><textarea id="sqdDesc" rows="3">${esc(squad.desc)}</textarea></div>
       <div class="write-row"><label>Tag de la bannière</label><input id="sqdTag" type="text" value="${escAttr(squad.tag || '')}" placeholder="Ex : ORACLE — sinon le nom est utilisé"></div>
       <div class="write-row"><label>Catégorie</label><input id="sqdCategory" type="text" value="${escAttr(squad.category || '')}" placeholder="Ex : Escadron d'élite"></div>
-      <div class="write-row"><label>Image de bannière (URL)</label><input id="sqdImage" type="url" value="${escAttr(squad.image || '')}" placeholder="https://…"></div>
-      <div class="write-row"><label>Logo / emblème (URL)</label><input id="sqdLogo" type="url" value="${escAttr(squad.logo || '')}" placeholder="https://…"></div>
+      <div class="write-row">
+        <label>Image de bannière (optionnel)</label>
+        <div class="write-images-list" id="sqdImagePreview">${squadImagePreviewHtml('image')}</div>
+        <input id="sqdImageFile" type="file" accept="image/*" onchange="handleSquadDossierImage(this,'image')">
+      </div>
+      <div class="write-row">
+        <label>Logo / emblème (optionnel)</label>
+        <div class="write-images-list" id="sqdLogoPreview">${squadImagePreviewHtml('logo')}</div>
+        <input id="sqdLogoFile" type="file" accept="image/*" onchange="handleSquadDossierImage(this,'logo')">
+      </div>
       <div class="write-row"><label>Musique de fond (URL)</label><input id="sqdMusic" type="url" value="${escAttr(squad.music || '')}" placeholder="Lien SoundCloud, fichier audio…"></div>
       <div class="write-row">
         <label>Texte du dossier (un paragraphe par bloc de lignes)</label>
@@ -3393,8 +3446,8 @@ function renderSquadDossier(id) {
           <div class="dossier-file-end">FIN DE LA PRÉSENTATION</div>
         </div>
         <div class="dossier-file-side">
-          ${squad.image ? `<div class="dossier-file-media"><img src="${encodeURI(squad.image)}" alt=""></div>` : `<div class="dossier-file-media dossier-file-noimg">IMAGE INDISPONIBLE</div>`}
-          ${squad.logo ? `<div class="dossier-file-media"><img src="${encodeURI(squad.logo)}" alt=""></div>` : ''}
+          ${squad.image ? `<div class="dossier-file-media"><img src="${squad.image}" alt=""></div>` : `<div class="dossier-file-media dossier-file-noimg">IMAGE INDISPONIBLE</div>`}
+          ${squad.logo ? `<div class="dossier-file-media"><img src="${squad.logo}" alt=""></div>` : ''}
         </div>
       </div>
     </div>
@@ -3415,7 +3468,7 @@ function renderSquads() {
         return `
         <div class="squad-dossier-card" onclick="navigate('escadron-${s.id}')">
           ${halcyonEditMode && isCustom ? `<span class="squad-dossier-card-remove" onclick="event.stopPropagation(); if(confirm('Supprimer définitivement cet escadron ?')){ deleteHalcyonSquad('${s.id}'); }">✕</span>` : ''}
-          <div class="squad-dossier-banner"${s.image ? ` style="background-image:url('${encodeURI(s.image)}')"` : ''}>
+          <div class="squad-dossier-banner"${s.image ? ` style="background-image:url('${s.image}')"` : ''}>
             <span class="squad-dossier-tag">${esc(tag)}</span>
           </div>
           <div class="squad-dossier-card-body">
@@ -3424,7 +3477,7 @@ function renderSquads() {
                 <div class="squad-dossier-card-name">${esc(s.name)}</div>
                 ${s.category ? `<div class="squad-dossier-card-category">${esc(s.category.toUpperCase())}</div>` : ''}
               </div>
-              <div class="squad-dossier-card-logo">${s.logo ? `<img src="${encodeURI(s.logo)}" alt="">` : esc(s.name.charAt(0))}</div>
+              <div class="squad-dossier-card-logo">${s.logo ? `<img src="${s.logo}" alt="">` : esc(s.name.charAt(0))}</div>
             </div>
             <p class="squad-dossier-card-desc">${esc(s.desc)}</p>
             <span class="squad-dossier-card-link">Consulter le dossier →</span>
