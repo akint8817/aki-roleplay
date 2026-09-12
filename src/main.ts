@@ -931,7 +931,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody','sfEditId'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1368,6 +1368,7 @@ function renderEcriture(): string {
       ci-dessous.
     </p>
     <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+      <input type="hidden" id="sfEditId" value="">
       <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
       <div class="write-row">
         <label>Danger / classification (courte)</label>
@@ -1385,7 +1386,8 @@ function renderEcriture(): string {
         <input id="sfImageFile" type="file" accept="image/*" onchange="handleSecretFileImage(this)">
       </div>
       <div class="write-error" id="sfError"></div>
-      <span class="btn btn-primary" onclick="addSecretFile()">Ajouter le fichier</span>
+      <span class="btn btn-primary" id="sfSubmitBtn" onclick="saveSecretFile()">Ajouter le fichier</span>
+      <span class="btn btn-ghost" id="sfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditSecretFile()">Annuler</span>
     </div>
     <div class="account-list">
       ${(() => {
@@ -1393,7 +1395,10 @@ function renderEcriture(): string {
         return mine.length ? mine.map(s=>`
         <div class="account-list-row">
           <span>${esc(s.title)}</span>
-          <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement ce fichier ?')){ deleteSecretFile('${s.id}'); }">Supprimer</span>
+          <span style="display:flex; gap:8px;">
+            <span class="btn btn-ghost" onclick="editSecretFile('${s.id}')">Modifier</span>
+            <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement ce fichier ?')){ deleteSecretFile('${s.id}'); }">Supprimer</span>
+          </span>
         </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`;
       })()}
     </div>
@@ -2079,13 +2084,15 @@ function refreshSecretFileImagePreview(): void {
 
 // "Fichiers secrets" (voir SecretFile) — écrits depuis l'espace d'écriture,
 // piochés aléatoirement dans la fuite de données du Fichier Zéro.
-function addSecretFile(): void {
+function saveSecretFile(): void {
+  const editIdEl = document.getElementById('sfEditId') as HTMLInputElement | null;
   const titleEl = document.getElementById('sfTitle') as HTMLInputElement | null;
   const dangerEl = document.getElementById('sfDanger') as HTMLInputElement | null;
   const bodyEl = document.getElementById('sfBody') as HTMLTextAreaElement | null;
   const errEl = document.getElementById('sfError');
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const editId = editIdEl?.value || '';
   const title = (titleEl?.value || '').trim();
   const danger = (dangerEl?.value || '').trim();
   const body = parseWriteBody(bodyEl?.value || '');
@@ -2093,15 +2100,43 @@ function addSecretFile(): void {
   if(!body.length){ if(errEl) errEl.textContent = 'Écris au moins une ligne de texte.'; return; }
   if(errEl) errEl.textContent = '';
   const image = sfImageDraft;
-  db.collection('secretFiles').add({ title, danger, body, image, author: getCurrentUser() || 'aki' })
-    .then(()=>{
-      if(titleEl) titleEl.value = '';
-      if(dangerEl) dangerEl.value = '';
-      if(bodyEl) bodyEl.value = '';
-      sfImageDraft = '';
-      refreshSecretFileImagePreview();
-    })
+  const data = { title, danger, body, image, author: getCurrentUser() || 'aki' };
+  const req = editId ? db.collection('secretFiles').doc(editId).update(data) : db.collection('secretFiles').add(data);
+  req.then(()=>{ cancelEditSecretFile(); })
     .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function editSecretFile(id: string): void {
+  const file = secretFilesCache.find(s => s.id === id);
+  if(!file) return;
+  (document.getElementById('sfEditId') as HTMLInputElement).value = id;
+  (document.getElementById('sfTitle') as HTMLInputElement).value = file.title;
+  (document.getElementById('sfDanger') as HTMLInputElement).value = file.danger || '';
+  (document.getElementById('sfBody') as HTMLTextAreaElement).value = file.body.map(decodeBodyLineForEdit).join('\n\n');
+  sfImageDraft = file.image || '';
+  refreshSecretFileImagePreview();
+  const btn = document.getElementById('sfSubmitBtn');
+  if(btn) btn.textContent = 'Enregistrer les modifications';
+  const cancelBtn = document.getElementById('sfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = '';
+  document.querySelector('.write-form')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function cancelEditSecretFile(): void {
+  const editIdEl = document.getElementById('sfEditId') as HTMLInputElement | null;
+  const titleEl = document.getElementById('sfTitle') as HTMLInputElement | null;
+  const dangerEl = document.getElementById('sfDanger') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('sfBody') as HTMLTextAreaElement | null;
+  if(editIdEl) editIdEl.value = '';
+  if(titleEl) titleEl.value = '';
+  if(dangerEl) dangerEl.value = '';
+  if(bodyEl) bodyEl.value = '';
+  sfImageDraft = '';
+  refreshSecretFileImagePreview();
+  const btn = document.getElementById('sfSubmitBtn');
+  if(btn) btn.textContent = 'Ajouter le fichier';
+  const cancelBtn = document.getElementById('sfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = 'none';
 }
 
 function deleteSecretFile(id: string): void {
