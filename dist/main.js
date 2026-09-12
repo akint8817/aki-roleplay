@@ -4001,15 +4001,6 @@ function submitCorruptTermCommand() {
         ], () => setCorruptTermInputEnabled(true));
     }
     else if (corruptTermStep === 2 && cmd === 'oxiri') {
-        if (!isLoggedIn()) {
-            setCorruptTermInputEnabled(false);
-            playCorruptTermLines([
-                ['[SYSTÈME] CODE VALIDÉ'],
-                ['[ARCHIVE] ACCÈS REFUSÉ — AUTHENTIFICATION HALCYON REQUISE'],
-                ['[ARCHIVE] Connecte-toi pour déverrouiller le FICHIER ZERO.', true],
-            ], () => setCorruptTermInputEnabled(true));
-            return;
-        }
         corruptTermStep = 3;
         setCorruptTermInputEnabled(false);
         playCorruptTermLines([
@@ -4071,11 +4062,35 @@ function triggerDataLeak() {
         <div class="leak-vignette-cat">${esc(v.category)}</div>
         <div class="leak-vignette-title">${esc(v.title)}</div>
         <div class="leak-vignette-line">${esc(v.line)}</div>`;
+            el.addEventListener('click', (ev) => { ev.stopPropagation(); openLeakFileWindow(v); });
             overlay.appendChild(el);
         });
         overlay.addEventListener('click', () => { overlay.remove(); document.body.style.overflow = ''; });
         document.body.style.overflow = 'hidden';
     }, 500);
+}
+function openLeakFileWindow(v) {
+    let modal = document.getElementById('leakFileWindow');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'leakFileWindow';
+        modal.className = 'leak-file-window';
+        modal.addEventListener('click', (ev) => { if (ev.target === modal) closeLeakFileWindow(); });
+        document.body.appendChild(modal);
+    }
+    modal.innerHTML = `
+    <div class="leak-file-window-box">
+      <button type="button" class="leak-file-window-close" onclick="closeLeakFileWindow()" aria-label="Fermer">✕</button>
+      <div class="leak-file-window-cat">${esc(v.category)}</div>
+      <div class="leak-file-window-title">${esc(v.title)}</div>
+      <p class="leak-file-window-line">${esc(v.line)}</p>
+    </div>
+  `;
+    requestAnimationFrame(() => modal.classList.add('open'));
+}
+function closeLeakFileWindow() {
+    const modal = document.getElementById('leakFileWindow');
+    if (modal) modal.classList.remove('open');
 }
 function toggleClassified(id) {
     const el = document.getElementById('classified-' + id);
@@ -5541,6 +5556,8 @@ function render() {
             leakOverlay.remove();
             document.body.style.overflow = '';
         }
+        const leakFileWindow = document.getElementById('leakFileWindow');
+        if (leakFileWindow) leakFileWindow.remove();
     }
     const zoomOverlay = document.getElementById('rosterZoomOverlay');
     if (zoomOverlay)

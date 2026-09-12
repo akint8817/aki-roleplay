@@ -1295,11 +1295,13 @@ h1,h2,h3,h4{
   border:1px solid #5a2320;
   background: rgba(10,8,9,0.92);
   padding:12px 14px;
-  cursor:default;
+  cursor:pointer;
   opacity:0;
   animation: leakVignetteIn .4s ease forwards;
   box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  transition: border-color .15s ease, box-shadow .15s ease;
 }
+.leak-vignette:hover{ border-color:#e0857c; box-shadow: 0 0 24px rgba(224,133,124,0.3); }
 @keyframes leakVignetteIn{ from{ opacity:0; transform:scale(0.85); } to{ opacity:1; transform:scale(1); } }
 .leak-vignette-cat{
   font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.12em; text-transform:uppercase;
@@ -1309,6 +1311,34 @@ h1,h2,h3,h4{
 .leak-vignette-line{ font-size:10.5px; color: var(--text-dim); line-height:1.5; }
 .leak-vignette.corrupted{ animation: leakVignetteIn .4s ease forwards, dossierGlitch 1.2s infinite steps(1); border-color:#e0857c; }
 .leak-vignette.corrupted .leak-vignette-title{ color:#e0857c; }
+
+/* ---- Petite fenêtre de détail d'un fichier de la fuite de données ---- */
+.leak-file-window{
+  position: fixed; inset:0; z-index:9900;
+  background: rgba(0,0,0,0.6);
+  display:flex; align-items:center; justify-content:center;
+  opacity:0; pointer-events:none;
+  transition: opacity .2s ease;
+}
+.leak-file-window.open{ opacity:1; pointer-events:auto; }
+.leak-file-window-box{
+  position:relative; width:min(420px, 88vw);
+  border:1px solid #5a2320; background:#0c0a0b;
+  padding:26px 28px;
+  box-shadow: 0 0 40px rgba(0,0,0,0.6);
+}
+.leak-file-window-close{
+  position:absolute; top:10px; right:10px; width:26px; height:26px;
+  border:1px solid var(--border); background:transparent; color:var(--text-dim);
+  border-radius:50%; cursor:pointer; font-size:12px; display:flex; align-items:center; justify-content:center;
+}
+.leak-file-window-close:hover{ color:#e0857c; border-color:#e0857c; }
+.leak-file-window-cat{
+  font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  color: var(--verdigris); margin-bottom:8px;
+}
+.leak-file-window-title{ font-family:'Cinzel', serif; font-size:22px; color:#f0ebdc; margin-bottom:14px; }
+.leak-file-window-line{ font-size:14px; color: var(--text); line-height:1.7; }
 
 /* ---- Séquence d'ouverture des dossiers : intrusion dans un système sécurisé ---- */
 
@@ -3172,6 +3202,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=37"></script>
+<script src="dist/main.js?v=38"></script>
 </body>
 </html>
