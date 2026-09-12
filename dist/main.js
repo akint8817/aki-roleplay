@@ -654,6 +654,8 @@ let customEntriesCache = [];
 let customPagesCache = [];
 let customChronoCache = [];
 let wfImagesDraft = [];
+let halcyonInfoCache = { dirigeant: '', dirigeantDesc: '' };
+let halcyonFactionCardsCache = [];
 function getFirestoreDb() {
     return window.db || null;
 }
@@ -671,7 +673,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hfcName', 'hfcDesc'];
 
 function captureDraftFormState() {
     const state = {};
@@ -769,6 +771,26 @@ function initFirestoreSync() {
         render();
         restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (chrono) :', err));
+
+    db.collection('halcyonInfo').doc('main').onSnapshot((doc) => {
+        const data = doc.data() || {};
+        halcyonInfoCache = { dirigeant: data.dirigeant || '', dirigeantDesc: data.dirigeantDesc || '' };
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (halcyonInfo) :', err));
+
+    db.collection('halcyonFactionCards').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, name: data.name, desc: data.desc || '' });
+        });
+        halcyonFactionCardsCache = list;
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (halcyonFactionCards) :', err));
 }
 function getCustomEntriesRaw() {
     return customEntriesCache;
@@ -1306,6 +1328,36 @@ function deleteCustomNavPage(id) {
         if ((window.location.hash || '').replace('#', '') === 'page-' + id) navigate('home');
     });
 }
+function saveHalcyonDirigeant() {
+    const nameEl = document.getElementById('hiDirigeant');
+    const descEl = document.getElementById('hiDirigeantDesc');
+    const errEl = document.getElementById('hiError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const dirigeant = (nameEl?.value || '').trim();
+    const dirigeantDesc = (descEl?.value || '').trim();
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonInfo').doc('main').set({ dirigeant, dirigeantDesc })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function addHalcyonFactionCard() {
+    const nameEl = document.getElementById('hfcName');
+    const descEl = document.getElementById('hfcDesc');
+    const errEl = document.getElementById('hfcError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const name = (nameEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!name) { if (errEl) errEl.textContent = 'Donne un nom à la faction.'; return; }
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonFactionCards').add({ name, desc })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function deleteHalcyonFactionCard(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('halcyonFactionCards').doc(id).delete();
+}
 function renderCustomPage(id) {
     const page = customPagesCache.find(p => p.id === id);
     if (!page) return renderNotFound();
@@ -1362,6 +1414,39 @@ function renderCompte() {
             <span onclick="navigate('page-${p.id}')" style="cursor:pointer;">${esc(p.label)}</span>
             <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cet onglet ?')){ deleteCustomNavPage('${p.id}'); }">Supprimer</span>
           </div>`).join('') : `<div class="empty-state">Aucun onglet personnalisé pour l'instant.</div>`}
+      </div>
+    </div>
+
+    <div class="account-section">
+      <h2 class="account-section-title">Dirigeant actuel de Halcyon</h2>
+      <p style="color:var(--text-dim); font-size:12.5px; margin-bottom:14px;">
+        Affiché en haut de la page Halcyon, visible par tous les visiteurs du site.
+      </p>
+      <div class="write-form" style="max-width:520px;">
+        <div class="write-row"><label>Nom</label><input id="hiDirigeant" type="text" value="${escAttr(halcyonInfoCache.dirigeant)}" placeholder="Ex : Sariah Frosleaf"></div>
+        <div class="write-row"><label>Titre / description courte</label><input id="hiDirigeantDesc" type="text" value="${escAttr(halcyonInfoCache.dirigeantDesc)}" placeholder="Ex : Commandante suprême de Halcyon"></div>
+        <div class="write-error" id="hiError"></div>
+        <span class="btn btn-primary" onclick="saveHalcyonDirigeant()">Enregistrer</span>
+      </div>
+    </div>
+
+    <div class="account-section">
+      <h2 class="account-section-title">Cartes de faction (page Halcyon)</h2>
+      <p style="color:var(--text-dim); font-size:12.5px; margin-bottom:14px;">
+        Ajoute des factions ou groupes notables à afficher en cartes sur la page Halcyon (alliés, ennemis, organisations rivales…).
+      </p>
+      <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+        <div class="write-row"><label>Nom</label><input id="hfcName" type="text" placeholder="Ex : Eidolon"></div>
+        <div class="write-row"><label>Description</label><textarea id="hfcDesc" rows="4" placeholder="Courte description de cette faction…"></textarea></div>
+        <div class="write-error" id="hfcError"></div>
+        <span class="btn btn-primary" onclick="addHalcyonFactionCard()">Ajouter la carte</span>
+      </div>
+      <div class="account-list">
+        ${halcyonFactionCardsCache.length ? halcyonFactionCardsCache.map(c => `
+          <div class="account-list-row">
+            <span>${esc(c.name)}</span>
+            <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette carte ?')){ deleteHalcyonFactionCard('${c.id}'); }">Supprimer</span>
+          </div>`).join('') : `<div class="empty-state">Aucune carte de faction pour l'instant.</div>`}
       </div>
     </div>
   `;
@@ -3139,6 +3224,12 @@ function renderHalcyonPage() {
         <h1 class="halcyon-page-title">HALCYON</h1>
         <div class="halcyon-page-divider"></div>
         <p class="halcyon-page-desc">${esc(f.desc)}</p>
+        ${halcyonInfoCache.dirigeant ? `
+        <div class="halcyon-page-leader">
+          <span class="halcyon-page-leader-label">Dirigeant actuel</span>
+          <span class="halcyon-page-leader-name">${esc(halcyonInfoCache.dirigeant)}</span>
+          ${halcyonInfoCache.dirigeantDesc ? `<span class="halcyon-page-leader-desc">${esc(halcyonInfoCache.dirigeantDesc)}</span>` : ''}
+        </div>` : ''}
       </div>
 
       <div class="halcyon-page-grid">
@@ -3164,6 +3255,16 @@ function renderHalcyonPage() {
 
       <div class="section-title"><h2>Escadrons</h2></div>
       ${renderSquads()}
+
+      ${halcyonFactionCardsCache.length ? `
+      <div class="section-title"><h2>Factions notables</h2></div>
+      <div class="halcyon-faction-cards">
+        ${halcyonFactionCardsCache.map(c => `
+          <div class="halcyon-faction-card">
+            <div class="halcyon-faction-card-name">${esc(c.name)}</div>
+            <p class="halcyon-faction-card-desc">${esc(c.desc)}</p>
+          </div>`).join('')}
+      </div>` : ''}
 
       <div class="halcyon-archive-card" onclick="navigate('armes')">
         <img class="halcyon-archive-card-logo" src="${encodeURI(HALCYON_LOGO)}" alt="">
