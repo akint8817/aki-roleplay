@@ -1148,24 +1148,6 @@ h1,h2,h3,h4{
 .corrupt-terminal.shake{ animation: dossierGateShake .4s ease; }
 .corrupt-terminal-bg{ position:absolute; inset:0; z-index:1; overflow:hidden; }
 
-/* ---- Mur d'alvéoles hexagonales en fond, façon paroi de capsule défaillante ---- */
-.corrupt-hex-layer{ position:absolute; inset:-20px; overflow:hidden; opacity:0.9; pointer-events:none; }
-.corrupt-hex-row{ display:flex; }
-.corrupt-hex-row:nth-child(even){ margin-left:32px; }
-.corrupt-hex-cell{
-  flex-shrink:0; width:64px; height:56px; margin:2px;
-  clip-path: polygon(25% 0%, 75% 0%, 100% 50%, 75% 100%, 25% 100%, 0% 50%);
-  background: rgba(90,70,75,0.4); border:1px solid rgba(224,133,124,0.3);
-  display:flex; align-items:center; justify-content:center;
-  font-family:'IBM Plex Mono', monospace; font-size:8px; letter-spacing:0.05em;
-  color: rgba(224,133,124,0.85);
-}
-.corrupt-hex-cell.failed{ animation: corruptHexFlicker 3.6s ease-in-out infinite; }
-@keyframes corruptHexFlicker{
-  0%, 100%{ opacity:0.18; }
-  4%{ opacity:0.95; } 8%{ opacity:0.22; }
-  50%{ opacity:0.15; } 54%{ opacity:0.8; } 59%{ opacity:0.2; }
-}
 .corrupt-window{
   position:absolute;
   border:1px solid rgba(224,133,124,0.35);
@@ -3190,6 +3172,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=36"></script>
+<script src="dist/main.js?v=37"></script>
 </body>
 </html>

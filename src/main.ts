@@ -871,6 +871,11 @@ let halcyonSquadDocsCache: (Partial<Squad> & { id: string })[] = [];
 // renderSquadDossier) — groupId est l'id de l'escadron concerné.
 interface SquadProject { id: string; groupId: string; title: string; desc: string; }
 let halcyonSquadProjectsCache: SquadProject[] = [];
+// "Fichiers secrets" écrits depuis l'espace d'écriture : ils n'ont pas de
+// fiche publique, ils alimentent seulement le tirage aléatoire de la fuite
+// de données du Fichier Zéro (voir buildLeakVignettes).
+interface SecretFile { id: string; title: string; line: string; }
+let secretFilesCache: SecretFile[] = [];
 // Bascule l'édition inline sur la page Halcyon (bouton "Modifier", visible
 // seulement pour un utilisateur connecté) — voir renderHalcyonPage.
 let halcyonEditMode = false;
@@ -916,7 +921,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfLine'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1080,6 +1085,18 @@ function initFirestoreSync(): void {
     render();
     restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (halcyonSquadProjects) :', err));
+
+  db.collection('secretFiles').onSnapshot((snap: any) => {
+    const list: SecretFile[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, title: data.title, line: data.line || '' });
+    });
+    secretFilesCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (secretFiles) :', err));
 }
 
 function getCustomEntriesRaw(): CustomEntry[] {
@@ -1331,6 +1348,26 @@ function renderEcriture(): string {
       <div class="write-error" id="ceError"></div>
       <span class="btn btn-primary" id="ceSubmitBtn" onclick="submitChronoEvent()">Publier l'événement</span>
       <span class="btn btn-ghost" id="ceCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditChronoEvent()">Annuler</span>
+    </div>
+
+    <h1 style="font-size:26px; margin:44px 0 6px;">Fichiers secrets</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
+      Fichier Zéro (l'archive corrompue accessible seulement une fois connecté), mélangé aux
+      personnages et armes déjà écrits.
+    </p>
+    <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+      <div class="write-row"><label>Titre</label><input id="sfTitle" type="text" placeholder="Ex : SUJET NÉANT"></div>
+      <div class="write-row"><label>Ligne (courte)</label><input id="sfLine" type="text" placeholder="Ex : Disparu après la phase 2"></div>
+      <div class="write-error" id="sfError"></div>
+      <span class="btn btn-primary" onclick="addSecretFile()">Ajouter le fichier</span>
+    </div>
+    <div class="account-list">
+      ${secretFilesCache.length ? secretFilesCache.map(s=>`
+        <div class="account-list-row">
+          <span>${esc(s.title)}</span>
+          <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement ce fichier ?')){ deleteSecretFile('${s.id}'); }">Supprimer</span>
+        </div>`).join('') : `<div class="empty-state">Aucun fichier secret pour l'instant.</div>`}
     </div>
   `;
 }
@@ -1905,6 +1942,28 @@ function deleteSquadProject(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
   db.collection('halcyonSquadProjects').doc(id).delete();
+}
+
+// "Fichiers secrets" (voir SecretFile) — écrits depuis l'espace d'écriture,
+// piochés aléatoirement dans la fuite de données du Fichier Zéro.
+function addSecretFile(): void {
+  const titleEl = document.getElementById('sfTitle') as HTMLInputElement | null;
+  const lineEl = document.getElementById('sfLine') as HTMLInputElement | null;
+  const errEl = document.getElementById('sfError');
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const title = (titleEl?.value || '').trim();
+  const line = (lineEl?.value || '').trim();
+  if(!title){ if(errEl) errEl.textContent = 'Donne un titre au fichier.'; return; }
+  if(errEl) errEl.textContent = '';
+  db.collection('secretFiles').add({ title, line })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function deleteSecretFile(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('secretFiles').doc(id).delete();
 }
 
 function renderCustomPage(id: string): string {
@@ -4330,23 +4389,6 @@ function corruptStreamColumnsHtml(count: number): string {
   return out;
 }
 
-// Mur d'alvéoles hexagonales en fond du terminal, dont certaines clignotent
-// "FAILED" façon paroi de capsule défaillante — purement décoratif, derrière
-// les flux de données et les fenêtres qui défilent déjà.
-function corruptHexLayerHtml(rows: number, cols: number): string {
-  let out = '';
-  for(let r=0; r<rows; r++){
-    out += `<div class="corrupt-hex-row">`;
-    for(let c=0; c<cols; c++){
-      const isFailed = Math.random() < 0.32;
-      const delay = (Math.random()*4).toFixed(2);
-      out += `<div class="corrupt-hex-cell${isFailed ? ' failed' : ''}" style="animation-delay:${delay}s;">${isFailed ? 'FAILED' : ''}</div>`;
-    }
-    out += `</div>`;
-  }
-  return out;
-}
-
 const CORRUPT_UNLOCK_CODE = '1234';
 
 function renderCorruptedArchive(): string {
@@ -4368,7 +4410,6 @@ function renderCorruptedArchive(): string {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('armes')" style="cursor:pointer">Armes</span> / ????</div>
     <div class="corrupt-terminal cyber-glitch-ambient" id="corruptTerminal">
       <div class="corrupt-terminal-bg">
-        <div class="corrupt-hex-layer">${corruptHexLayerHtml(14, 34)}</div>
         <div class="corrupt-stream-layer">${corruptStreamColumnsHtml(9)}</div>
         ${windows}
       </div>
@@ -4515,6 +4556,15 @@ function submitCorruptTermCommand(): void {
       ["Entrez le code d'accès au FICHIER ZERO :"],
     ], ()=> setCorruptTermInputEnabled(true));
   } else if(corruptTermStep === 2 && cmd === 'oxiri'){
+    if(!isLoggedIn()){
+      setCorruptTermInputEnabled(false);
+      playCorruptTermLines([
+        ['[SYSTÈME] CODE VALIDÉ'],
+        ['[ARCHIVE] ACCÈS REFUSÉ — AUTHENTIFICATION HALCYON REQUISE'],
+        ['[ARCHIVE] Connecte-toi pour déverrouiller le FICHIER ZERO.', true],
+      ], ()=> setCorruptTermInputEnabled(true));
+      return;
+    }
     corruptTermStep = 3;
     setCorruptTermInputEnabled(false);
     playCorruptTermLines([
@@ -4543,7 +4593,10 @@ function buildLeakVignettes(): LeakVignette[] {
     { category:'EXPÉRIENCE', title:'SUJET NÉANT', line:'Disparu après la phase 2' },
     { category:'EXPÉRIENCE', title:'ARCHIVE MÉDICALE #204', line:'Accès restreint — cause du décès inconnue' },
   ];
-  return [...chars, ...weapons, ...experiments];
+  const secrets: LeakVignette[] = secretFilesCache.map(s=>({
+    category: 'FICHIER SECRET', title: s.title, line: s.line,
+  }));
+  return [...chars, ...weapons, ...experiments, ...secrets];
 }
 
 function triggerDataLeak(): void {
