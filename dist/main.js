@@ -1535,10 +1535,13 @@ function factionIconSvg(id, size) {
         return '';
     return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3">${f.iconPath}</svg>`;
 }
-let rosterState = null;
+const rosterStates = {};
+function getRosterState(rosterId) {
+    return rosterStates[rosterId] || null;
+}
 const ROSTER_STEP_X_DESKTOP = 128;
 const ROSTER_STEP_X_MOBILE = 88;
-function rosterCard3dHtml(e, index) {
+function rosterCard3dHtml(rosterId, e, index) {
     const f = FACTIONS.find(x => x.id === e.faction);
     const fclr = f ? f.color : '196,201,209';
     const visual = e.image
@@ -1546,7 +1549,7 @@ function rosterCard3dHtml(e, index) {
         : `<div class="roster-card-glyph">${esc(e.name.charAt(0))}</div>`;
     const pips = e.rarity === 'rare' ? '✦ ✦ ✦' : '✦';
     return `
-    <div class="roster-3d-card" data-index="${index}" data-flip="0" style="--fclr:${fclr}" onmouseenter="onRosterCardHoverStart(${index})" onmouseleave="onRosterCardHoverEnd(${index})">
+    <div class="roster-3d-card" data-index="${index}" data-flip="0" style="--fclr:${fclr}" onmouseenter="onRosterCardHoverStart('${rosterId}', ${index})" onmouseleave="onRosterCardHoverEnd('${rosterId}', ${index})">
       <div class="roster-3d-card-inner">
         <div class="roster-card-edge roster-card-edge-r"></div>
         <div class="roster-card-edge roster-card-edge-l"></div>
@@ -1572,10 +1575,10 @@ function rosterCard3dHtml(e, index) {
       </div>
     </div>`;
 }
-function rosterBubbleHtml(e) {
+function rosterBubbleHtml(rosterId, e) {
     const c = CATS[e.cat];
     return `
-    <button class="roster-bubble-close" onclick="closeRosterBubble()" aria-label="Fermer">✕</button>
+    <button class="roster-bubble-close" onclick="closeRosterBubble('${rosterId}')" aria-label="Fermer">✕</button>
     <div class="roster-info-eyebrow">${esc(c.label)} · ${e.rarity === 'rare' ? 'Notable' : 'Commun'}</div>
     <div class="roster-info-name">${esc(e.name)}</div>
     ${e.quote ? `<div class="roster-info-quote">${esc(e.quote)}</div>` : ''}
@@ -1584,9 +1587,10 @@ function rosterBubbleHtml(e) {
   `;
 }
 function renderPersonnagesRoster() {
+    const rosterId = 'main';
     const initial = FACTIONS[0];
     const list = ENTRIES.filter(e => e.cat === 'personnages' && e.faction === initial.id);
-    rosterState = { factionId: initial.id, list, selected: 0 };
+    rosterStates[rosterId] = { factionId: initial.id, list, selected: 0 };
     return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Personnages</div>
     <div class="roster-page">
@@ -1604,23 +1608,23 @@ function renderPersonnagesRoster() {
         <div class="roster-ornament"><span></span>❖<span></span></div>
         <p class="roster-hint">🖱️ Molette pour parcourir · Survole pour un aperçu · Clique pour zoomer · Glisse pour retourner</p>
 
-        <div class="roster-stage" id="rosterStage">
+        <div class="roster-stage" id="rosterStage-${rosterId}">
           <span class="roster-frame-corner tl">✦</span>
           <span class="roster-frame-corner tr">✦</span>
           <span class="roster-frame-corner bl">✦</span>
           <span class="roster-frame-corner br">✦</span>
-          <div class="roster-stage-cards" id="rosterStageCards">
-            ${list.length ? list.map((e, i) => rosterCard3dHtml(e, i)).join('') : ''}
+          <div class="roster-stage-cards" id="rosterStageCards-${rosterId}">
+            ${list.length ? list.map((e, i) => rosterCard3dHtml(rosterId, e, i)).join('') : ''}
           </div>
           ${!list.length ? `<div class="roster-empty">Aucun résonateur recensé dans cette faction pour l'instant.</div>` : ''}
         </div>
 
         <div class="roster-nav">
-          <button class="roster-arrow prev" onclick="scrollRoster(-1)"><span class="line"></span>◂</button>
-          <button class="roster-arrow next" onclick="scrollRoster(1)">▸<span class="line"></span></button>
+          <button class="roster-arrow prev" onclick="scrollRoster('${rosterId}', -1)"><span class="line"></span>◂</button>
+          <button class="roster-arrow next" onclick="scrollRoster('${rosterId}', 1)">▸<span class="line"></span></button>
         </div>
 
-        <div class="roster-bubble" id="rosterBubble"></div>
+        <div class="roster-bubble" id="rosterBubble-${rosterId}"></div>
       </div>
     </div>`;
 }
@@ -1630,23 +1634,24 @@ const ROSTER_MAX_VISIBLE = 3;
 // de la scène, pas d'une valeur fixe pensée pour un site plus étroit.
 // Utilisée à la fois pour positionner les cartes et pour déduire, au clic,
 // laquelle a été visée — les deux doivent rester en phase.
-function rosterStepX(isMobile) {
-    const stage = document.getElementById('rosterStage');
+function rosterStepX(rosterId, isMobile) {
+    const stage = document.getElementById('rosterStage-' + rosterId);
     const stageWidth = (stage ? stage.clientWidth : 0) || (isMobile ? 360 : 900);
     const base = isMobile ? ROSTER_STEP_X_MOBILE : ROSTER_STEP_X_DESKTOP;
     const proportional = stageWidth * (isMobile ? 0.16 : 0.19);
     return Math.min(320, Math.max(base, proportional));
 }
-function layoutRosterStage() {
-    if (!rosterState)
+function layoutRosterStage(rosterId) {
+    const state = getRosterState(rosterId);
+    if (!state)
         return;
-    const stageCards = document.getElementById('rosterStageCards');
+    const stageCards = document.getElementById('rosterStageCards-' + rosterId);
     if (!stageCards)
         return;
-    const { selected } = rosterState;
+    const { selected } = state;
     const isMobile = window.innerWidth < 700;
     const maxVisible = ROSTER_MAX_VISIBLE;
-    const stepX = rosterStepX(isMobile);
+    const stepX = rosterStepX(rosterId, isMobile);
     const stepRotate = 26;
     const stepZ = 140;
     Array.from(stageCards.children).forEach(child => {
@@ -1673,18 +1678,19 @@ function layoutRosterStage() {
             shine.style.opacity = '0';
     });
 }
-function openRosterBubble(index) {
-    if (!rosterState)
+function openRosterBubble(rosterId, index) {
+    const state = getRosterState(rosterId);
+    if (!state)
         return;
-    const e = rosterState.list[index];
-    const bubble = document.getElementById('rosterBubble');
+    const e = state.list[index];
+    const bubble = document.getElementById('rosterBubble-' + rosterId);
     if (!bubble || !e)
         return;
-    bubble.innerHTML = rosterBubbleHtml(e);
+    bubble.innerHTML = rosterBubbleHtml(rosterId, e);
     bubble.classList.add('open');
 }
-function closeRosterBubble() {
-    const bubble = document.getElementById('rosterBubble');
+function closeRosterBubble(rosterId) {
+    const bubble = document.getElementById('rosterBubble-' + rosterId);
     if (bubble)
         bubble.classList.remove('open');
 }
@@ -1692,8 +1698,9 @@ function closeRosterBubble() {
 // reste posée quelques instants sur la carte active, et se referme dès
 // qu'on la retire (comme une infobulle).
 let rosterHoverTimer = null;
-function onRosterCardHoverStart(index) {
-    if (!rosterState || index !== rosterState.selected)
+function onRosterCardHoverStart(rosterId, index) {
+    const state = getRosterState(rosterId);
+    if (!state || index !== state.selected)
         return;
     if (rosterDrag.active)
         return;
@@ -1701,15 +1708,15 @@ function onRosterCardHoverStart(index) {
         return;
     rosterHoverTimer = window.setTimeout(() => {
         rosterHoverTimer = null;
-        openRosterBubble(index);
+        openRosterBubble(rosterId, index);
     }, 650);
 }
-function onRosterCardHoverEnd(_index) {
+function onRosterCardHoverEnd(rosterId, _index) {
     if (rosterHoverTimer !== null) {
         clearTimeout(rosterHoverTimer);
         rosterHoverTimer = null;
     }
-    closeRosterBubble();
+    closeRosterBubble(rosterId);
 }
 // Le clic, lui, ouvre la fiche en grand : la carte zoome au centre de
 // l'écran avec ses informations qui apparaissent de part et d'autre.
@@ -1737,13 +1744,14 @@ function rosterZoomHtml(e) {
     </div>
   `;
 }
-function openRosterZoom(index) {
-    if (!rosterState)
+function openRosterZoom(rosterId, index) {
+    const state = getRosterState(rosterId);
+    if (!state)
         return;
-    const e = rosterState.list[index];
+    const e = state.list[index];
     if (!e)
         return;
-    closeRosterBubble();
+    closeRosterBubble(rosterId);
     let overlay = document.getElementById('rosterZoomOverlay');
     if (!overlay) {
         overlay = document.createElement('div');
@@ -1769,49 +1777,52 @@ function closeRosterZoom() {
 // leur silhouette visible, ce qui les rend quasi impossibles à cliquer avec
 // précision. On délègue donc le clic au conteneur (non transformé) et on
 // déduit la carte visée à partir de la position horizontale du clic.
-function onRosterStageClick(ev) {
+function onRosterStageClick(rosterId, ev) {
     if (rosterDrag.moved) {
         rosterDrag.moved = false;
         return;
     }
-    if (!rosterState || !rosterState.list.length)
+    const state = getRosterState(rosterId);
+    if (!state || !state.list.length)
         return;
-    const stage = document.getElementById('rosterStage');
+    const stage = document.getElementById('rosterStage-' + rosterId);
     if (!stage)
         return;
     const rect = stage.getBoundingClientRect();
     const centerX = rect.left + rect.width / 2;
     const isMobile = window.innerWidth < 700;
-    const stepX = rosterStepX(isMobile);
+    const stepX = rosterStepX(rosterId, isMobile);
     const offset = Math.round((ev.clientX - centerX) / stepX);
-    const target = Math.max(0, Math.min(rosterState.list.length - 1, rosterState.selected + offset));
-    rosterState.selected = target;
-    layoutRosterStage();
-    openRosterZoom(target);
+    const target = Math.max(0, Math.min(state.list.length - 1, state.selected + offset));
+    state.selected = target;
+    layoutRosterStage(rosterId);
+    openRosterZoom(rosterId, target);
 }
 let rosterWheelLock = false;
-function onRosterStageWheel(ev) {
-    if (!rosterState || !rosterState.list.length)
+function onRosterStageWheel(rosterId, ev) {
+    const state = getRosterState(rosterId);
+    if (!state || !state.list.length)
         return;
     const dir = ev.deltaY > 0 ? 1 : -1;
-    const next = rosterState.selected + dir;
-    if (next < 0 || next >= rosterState.list.length)
+    const next = state.selected + dir;
+    if (next < 0 || next >= state.list.length)
         return;
     ev.preventDefault();
     if (rosterWheelLock)
         return;
-    closeRosterBubble();
-    rosterState.selected = next;
-    layoutRosterStage();
+    closeRosterBubble(rosterId);
+    state.selected = next;
+    layoutRosterStage(rosterId);
     rosterWheelLock = true;
     setTimeout(() => { rosterWheelLock = false; }, 380);
 }
 // Effet "vraie carte à jouer" : la carte active suit la souris (léger tilt
 // 3D + reflet façon carte holographique), comme si on la tenait en main.
-function onRosterStageMouseMove(ev) {
+function onRosterStageMouseMove(rosterId, ev) {
     if (rosterDrag.active)
         return;
-    const active = document.querySelector('.roster-3d-card.is-active');
+    const stage = document.getElementById('rosterStage-' + rosterId);
+    const active = stage ? stage.querySelector('.roster-3d-card.is-active') : null;
     const inner = active ? active.querySelector('.roster-3d-card-inner') : null;
     const shine = active ? active.querySelector('.roster-card-shine') : null;
     if (!active || !inner)
@@ -1838,10 +1849,11 @@ function onRosterStageMouseMove(ev) {
         shine.style.setProperty('--my', `${py * 100}%`);
     }
 }
-function onRosterStageMouseLeave() {
+function onRosterStageMouseLeave(rosterId) {
     if (rosterDrag.active)
         return;
-    const active = document.querySelector('.roster-3d-card.is-active');
+    const stage = document.getElementById('rosterStage-' + rosterId);
+    const active = stage ? stage.querySelector('.roster-3d-card.is-active') : null;
     const inner = active ? active.querySelector('.roster-3d-card-inner') : null;
     const shine = active ? active.querySelector('.roster-card-shine') : null;
     if (inner) {
@@ -1856,8 +1868,9 @@ function onRosterStageMouseLeave() {
 // tourner librement (jusqu'à 360° et plus) et voir son dos. Au relâchement,
 // elle se cale sur la face la plus proche (recto ou verso).
 const rosterDrag = { active: false, moved: false, cardEl: null, innerEl: null, startX: 0, startRotation: 0 };
-function onRosterStageMouseDown(ev) {
-    const active = document.querySelector('.roster-3d-card.is-active');
+function onRosterStageMouseDown(rosterId, ev) {
+    const stage = document.getElementById('rosterStage-' + rosterId);
+    const active = stage ? stage.querySelector('.roster-3d-card.is-active') : null;
     if (!active)
         return;
     const rect = active.getBoundingClientRect();
@@ -1873,7 +1886,7 @@ function onRosterStageMouseDown(ev) {
         clearTimeout(rosterHoverTimer);
         rosterHoverTimer = null;
     }
-    closeRosterBubble();
+    closeRosterBubble(rosterId);
     rosterDrag.active = true;
     rosterDrag.moved = false;
     rosterDrag.cardEl = active;
@@ -1909,49 +1922,52 @@ function onRosterDragEnd() {
     inner.style.transition = 'transform .5s cubic-bezier(.2,.8,.2,1)';
     inner.style.transform = `rotateY(${nearest}deg)`;
 }
-function initRosterStage() {
-    layoutRosterStage();
-    const stage = document.getElementById('rosterStage');
+function initRosterStage(rosterId) {
+    layoutRosterStage(rosterId);
+    const stage = document.getElementById('rosterStage-' + rosterId);
     if (stage) {
-        stage.addEventListener('click', onRosterStageClick);
-        stage.addEventListener('wheel', onRosterStageWheel, { passive: false });
-        stage.addEventListener('mousedown', onRosterStageMouseDown);
-        stage.addEventListener('mousemove', onRosterStageMouseMove);
-        stage.addEventListener('mouseleave', onRosterStageMouseLeave);
+        stage.addEventListener('click', (ev) => onRosterStageClick(rosterId, ev));
+        stage.addEventListener('wheel', (ev) => onRosterStageWheel(rosterId, ev), { passive: false });
+        stage.addEventListener('mousedown', (ev) => onRosterStageMouseDown(rosterId, ev));
+        stage.addEventListener('mousemove', (ev) => onRosterStageMouseMove(rosterId, ev));
+        stage.addEventListener('mouseleave', () => onRosterStageMouseLeave(rosterId));
     }
 }
-function selectRosterCard(index) {
-    if (!rosterState)
+function selectRosterCard(rosterId, index) {
+    const state = getRosterState(rosterId);
+    if (!state)
         return;
-    if (index < 0 || index >= rosterState.list.length)
+    if (index < 0 || index >= state.list.length)
         return;
-    rosterState.selected = index;
-    layoutRosterStage();
+    state.selected = index;
+    layoutRosterStage(rosterId);
 }
-function scrollRoster(dir) {
-    if (!rosterState)
+function scrollRoster(rosterId, dir) {
+    const state = getRosterState(rosterId);
+    if (!state)
         return;
-    const next = rosterState.selected + dir;
-    if (next < 0 || next >= rosterState.list.length)
+    const next = state.selected + dir;
+    if (next < 0 || next >= state.list.length)
         return;
-    closeRosterBubble();
-    rosterState.selected = next;
-    layoutRosterStage();
+    closeRosterBubble(rosterId);
+    state.selected = next;
+    layoutRosterStage(rosterId);
 }
 function selectFaction(id) {
-    const stage = document.getElementById('rosterStage');
-    const stageCards = document.getElementById('rosterStageCards');
+    const rosterId = 'main';
+    const stage = document.getElementById('rosterStage-' + rosterId);
+    const stageCards = document.getElementById('rosterStageCards-' + rosterId);
     if (!stage || !stageCards)
         return;
     const f = FACTIONS.find(x => x.id === id);
     if (!f)
         return;
     document.querySelectorAll('.roster-faction').forEach(b => b.classList.toggle('active', b.dataset.faction === id));
-    closeRosterBubble();
+    closeRosterBubble(rosterId);
     stage.classList.add('slide-out');
     setTimeout(() => {
         const list = ENTRIES.filter(e => e.cat === 'personnages' && e.faction === id);
-        rosterState = { factionId: id, list, selected: 0 };
+        rosterStates[rosterId] = { factionId: id, list, selected: 0 };
         const titleEl = document.getElementById('rosterTitle');
         const descEl = document.getElementById('rosterDesc');
         const crestEl = document.getElementById('rosterCrest');
@@ -1961,10 +1977,10 @@ function selectFaction(id) {
             descEl.textContent = f.desc;
         if (crestEl)
             crestEl.innerHTML = factionIconSvg(id, 170);
-        stageCards.innerHTML = list.length ? list.map((e, i) => rosterCard3dHtml(e, i)).join('') : '';
+        stageCards.innerHTML = list.length ? list.map((e, i) => rosterCard3dHtml(rosterId, e, i)).join('') : '';
         stage.classList.remove('slide-out');
         stage.classList.add('slide-in');
-        layoutRosterStage();
+        layoutRosterStage(rosterId);
         setTimeout(() => stage.classList.remove('slide-in'), 340);
     }, 240);
 }
@@ -3234,6 +3250,7 @@ function renderOrgTree() {
   `;
 }
 function renderSquadRoster(squad) {
+    const rosterId = squad.id;
     const customMembers = halcyonSquadMembersCache.filter(m => m.groupId === squad.id);
     const baseList = ENTRIES.filter(e => e.cat === 'personnages' && e.squad === squad.id);
     const seen = new Set(baseList.map(e => e.id));
@@ -3243,27 +3260,27 @@ function renderSquadRoster(squad) {
         if (e && !seen.has(e.id)) { customEntries.push({ link, entry: e }); seen.add(e.id); }
     });
     const list = [...baseList, ...customEntries.map(c => c.entry)];
-    rosterState = { factionId: squad.id, list, selected: 0 };
+    rosterStates[rosterId] = { factionId: squad.id, list, selected: 0 };
     const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !seen.has(e.id)) : [];
     return `
     <div class="roster-page no-rail">
       <div class="roster-main">
         <p class="roster-hint">🖱️ Molette pour parcourir · Survole pour un aperçu · Clique pour zoomer · Glisse pour retourner</p>
-        <div class="roster-stage" id="rosterStage">
+        <div class="roster-stage" id="rosterStage-${rosterId}">
           <span class="roster-frame-corner tl">✦</span>
           <span class="roster-frame-corner tr">✦</span>
           <span class="roster-frame-corner bl">✦</span>
           <span class="roster-frame-corner br">✦</span>
-          <div class="roster-stage-cards" id="rosterStageCards">
-            ${list.length ? list.map((e, i) => rosterCard3dHtml(e, i)).join('') : ''}
+          <div class="roster-stage-cards" id="rosterStageCards-${rosterId}">
+            ${list.length ? list.map((e, i) => rosterCard3dHtml(rosterId, e, i)).join('') : ''}
           </div>
           ${!list.length ? `<div class="roster-empty">Aucun membre recensé dans cet escadron pour l'instant.</div>` : ''}
         </div>
         <div class="roster-nav">
-          <button class="roster-arrow prev" onclick="scrollRoster(-1)"><span class="line"></span>◂</button>
-          <button class="roster-arrow next" onclick="scrollRoster(1)">▸<span class="line"></span></button>
+          <button class="roster-arrow prev" onclick="scrollRoster('${rosterId}', -1)"><span class="line"></span>◂</button>
+          <button class="roster-arrow next" onclick="scrollRoster('${rosterId}', 1)">▸<span class="line"></span></button>
         </div>
-        <div class="roster-bubble" id="rosterBubble"></div>
+        <div class="roster-bubble" id="rosterBubble-${rosterId}"></div>
       </div>
       ${halcyonEditMode ? `
       <div class="halcyon-inline-add-row">
@@ -5248,7 +5265,7 @@ function render() {
     else if (route === 'halcyon') {
         dockHalcyonLogoImmediate();
         content.innerHTML = renderHalcyonPage();
-        initRosterStage();
+        getAllSquads().forEach(s => initRosterStage(s.id));
     }
     else if (route === 'armes') {
         playDossierBoot(() => renderArmesArchive());
@@ -5263,7 +5280,7 @@ function render() {
     }
     else if (route === 'cat-personnages') {
         content.innerHTML = renderPersonnagesRoster();
-        initRosterStage();
+        initRosterStage('main');
     }
     else if (route === 'chronologie') {
         playChronoBoot();
@@ -5579,8 +5596,7 @@ window.addEventListener('DOMContentLoaded', () => {
     refreshCustomNavLinks();
     render();
 });
-window.addEventListener('resize', () => { if (rosterState)
-    layoutRosterStage(); });
+window.addEventListener('resize', () => { Object.keys(rosterStates).forEach(id => layoutRosterStage(id)); });
 window.addEventListener('mousemove', onRosterDragMove);
 window.addEventListener('mouseup', onRosterDragEnd);
 window.addEventListener('keydown', (ev) => {
