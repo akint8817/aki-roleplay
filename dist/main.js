@@ -3779,6 +3779,19 @@ function corruptStreamColumnsHtml(count) {
     }
     return out;
 }
+function corruptHexLayerHtml(rows, cols) {
+    let out = '';
+    for (let r = 0; r < rows; r++) {
+        out += `<div class="corrupt-hex-row">`;
+        for (let c = 0; c < cols; c++) {
+            const isFailed = Math.random() < 0.32;
+            const delay = (Math.random() * 4).toFixed(2);
+            out += `<div class="corrupt-hex-cell${isFailed ? ' failed' : ''}" style="animation-delay:${delay}s;">${isFailed ? 'FAILED' : ''}</div>`;
+        }
+        out += `</div>`;
+    }
+    return out;
+}
 const CORRUPT_UNLOCK_CODE = '1234';
 function renderCorruptedArchive() {
     const windows = Array.from({ length: 7 }, () => {
@@ -3798,6 +3811,7 @@ function renderCorruptedArchive() {
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('armes')" style="cursor:pointer">Armes</span> / ????</div>
     <div class="corrupt-terminal cyber-glitch-ambient" id="corruptTerminal">
       <div class="corrupt-terminal-bg">
+        <div class="corrupt-hex-layer">${corruptHexLayerHtml(9, 16)}</div>
         <div class="corrupt-stream-layer">${corruptStreamColumnsHtml(9)}</div>
         ${windows}
       </div>
