@@ -1618,25 +1618,65 @@ h1,h2,h3,h4{
   color: var(--text-dim); text-align:center;
 }
 
-/* ---- Cartes "projets" (dossier d'escadron), façon fiches d'équipement ---- */
-.tech-project-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap:18px; margin-bottom:20px; }
-.tech-project-card{
-  position:relative; border:1px solid var(--border); background: var(--surface);
-  padding:20px 18px; text-align:center;
-  clip-path: polygon(0 0, calc(100% - 14px) 0, 100% 14px, 100% 100%, 0 100%);
-  transition: border-color .15s ease;
+/* ---- Cartes "projets" (dossier d'escadron), façon fiche-document papier
+   inclinée avec photo à trombone, inspirée d'une fiche d'évaluation de
+   personnage (même famille visuelle que .dossier-badge-card/.dossier-form-paper,
+   mais avec la photo réduite pour rester lisible en grille) ---- */
+.tech-project-grid{ display:grid; grid-template-columns: repeat(auto-fit, minmax(300px,1fr)); gap:20px; margin-bottom:20px; }
+.project-doc-card{
+  position:relative; background:#e9e4d8; color:#231f1a; border-radius:4px;
+  padding:16px 16px 12px; font-family:'IBM Plex Mono', monospace;
+  box-shadow:0 14px 28px rgba(0,0,0,0.45);
+  overflow:hidden;
 }
-.tech-project-card:hover{ border-color: var(--verdigris); }
-.tech-project-icon{
-  width:44px; height:44px; margin:0 auto 12px; border-radius:8px; border:1px solid var(--verdigris);
-  display:flex; align-items:center; justify-content:center; color: var(--verdigris); font-size:20px;
-  background: rgba(138,149,166,0.08);
+.project-doc-watermark{
+  position:absolute; top:4px; right:12px; font-family:'Cinzel',serif;
+  font-size:24px; font-weight:700; letter-spacing:0.06em; color:rgba(35,31,26,0.07);
+  text-transform:uppercase; pointer-events:none; user-select:none; white-space:nowrap;
 }
-.tech-project-title{ font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:0.06em; color:#f0ebdc; margin-bottom:10px; }
-.tech-project-desc{ font-size:12px; color: var(--text-dim); line-height:1.7; }
+.project-doc-head{ display:flex; align-items:flex-start; gap:12px; margin-bottom:12px; position:relative; z-index:1; }
+.project-doc-photo{
+  position:relative; flex-shrink:0; width:60px; height:76px;
+  background:linear-gradient(160deg,#3a2f52,#151220); border:3px solid #221c33; border-radius:6px;
+  transform:rotate(-4deg); box-shadow:0 8px 16px rgba(0,0,0,0.4);
+  display:flex; align-items:center; justify-content:center;
+}
+.project-doc-photo-clip{
+  position:absolute; top:-9px; left:50%; transform:translateX(-50%);
+  width:20px; height:12px; border:2px solid #221c33; border-bottom:none;
+  border-radius:6px 6px 0 0; background:#100d18;
+}
+.project-doc-photo-icon{ font-size:20px; color: var(--verdigris); }
+.project-doc-meta{ flex:1; min-width:0; padding-top:3px; }
+.project-doc-num{
+  display:inline-block; padding:2px 8px; background:#231f1a; color:#e9e4d8;
+  font-size:9px; letter-spacing:0.08em; border-radius:2px; margin-bottom:6px;
+}
+.project-doc-title{
+  font-family:'Cinzel', serif; font-size:14px; font-weight:700; letter-spacing:0.02em; line-height:1.25;
+  overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical;
+}
+.project-doc-fields{
+  display:flex; gap:14px; font-size:9.5px; margin-bottom:10px;
+  border-top:1px dashed rgba(35,31,26,0.35); border-bottom:1px dashed rgba(35,31,26,0.35); padding:7px 0;
+}
+.project-doc-fields div{ min-width:0; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.project-doc-fields b{ display:block; font-size:7.5px; letter-spacing:0.06em; text-transform:uppercase; opacity:0.6; margin-bottom:2px; font-weight:400; }
+.project-doc-section{ display:flex; align-items:center; justify-content:space-between; margin-bottom:6px; }
+.project-doc-section-label{ font-size:9px; letter-spacing:0.08em; text-transform:uppercase; font-weight:700; }
+.project-doc-barcode{
+  width:44px; height:10px;
+  background: repeating-linear-gradient(90deg, #231f1a 0px, #231f1a 1px, transparent 1px, transparent 3px);
+  opacity:0.5;
+}
+.project-doc-desc{ font-size:11.5px; line-height:1.6; color:#2c261e; margin-bottom:12px; }
+.project-doc-footer{
+  display:flex; justify-content:space-between; gap:8px; font-size:7.5px; letter-spacing:0.04em; text-transform:uppercase;
+  opacity:0.65; border-top:1px solid rgba(35,31,26,0.3); padding-top:7px; white-space:nowrap; overflow:hidden;
+}
 .tech-project-card-remove{
   position:absolute; top:8px; right:8px; width:20px; height:20px; display:flex; align-items:center; justify-content:center;
-  border-radius:50%; background: rgba(0,0,0,0.4); color: var(--text-dim); font-size:11px; cursor:pointer;
+  border-radius:50%; background: rgba(0,0,0,0.45); color:#e9e4d8; font-size:11px; cursor:pointer; z-index:2;
 }
 .tech-project-card-remove:hover{ background:#6b2f2a; color:#fff; }
 
@@ -3299,6 +3339,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=42"></script>
+<script src="dist/main.js?v=43"></script>
 </body>
 </html>

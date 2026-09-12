@@ -3598,13 +3598,36 @@ function renderSquadDossier(id) {
         return `
       <div class="section-title"><h2>Projets</h2></div>
       <div class="tech-project-grid">
-        ${projects.map(p => `
-          <div class="tech-project-card">
+        ${projects.map((p,i) => {
+          const pCode = String(i+1).padStart(3,'0');
+          return `
+          <div class="project-doc-card">
             ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
-            <div class="tech-project-icon">◈</div>
-            <div class="tech-project-title">${esc(p.title.toUpperCase())}</div>
-            <p class="tech-project-desc">${esc(p.desc)}</p>
-          </div>`).join('')}
+            <div class="project-doc-watermark">DOCUMENT</div>
+            <div class="project-doc-head">
+              <div class="project-doc-photo">
+                <div class="project-doc-photo-clip"></div>
+                <div class="project-doc-photo-icon">◈</div>
+              </div>
+              <div class="project-doc-meta">
+                <span class="project-doc-num">N° ${pCode}</span>
+                <div class="project-doc-title">${esc(p.title)}</div>
+              </div>
+            </div>
+            <div class="project-doc-fields">
+              <div><b>Projet</b>${esc(p.title)}</div>
+              <div><b>Département</b>${esc(squad.category || squad.name)}</div>
+            </div>
+            <div class="project-doc-section">
+              <span class="project-doc-section-label">◆ Description</span>
+              <span class="project-doc-barcode"></span>
+            </div>
+            <p class="project-doc-desc">${esc(p.desc)}</p>
+            <div class="project-doc-footer">
+              <span>Dossier Halcyon</span><span>DOC-${docCode}-${pCode}</span>
+            </div>
+          </div>`;
+        }).join('')}
       </div>
       ${editing ? `
       <div class="write-form halcyon-edit-panel" style="max-width:480px;">
