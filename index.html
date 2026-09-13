@@ -2612,41 +2612,47 @@ h1,h2,h3,h4{
 #rosterGridWrap{ margin-top:22px; transition: opacity .2s ease; }
 #rosterGridWrap.slide-out{ opacity:0; }
 #rosterGridWrap.slide-in{ animation: rosterIn .34s ease; }
-.champ-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:18px; }
+.champ-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(220px,1fr)); gap:26px; }
 .champ-card{
-  position:relative; aspect-ratio: 3/4; overflow:hidden; border-radius:3px;
+  position:relative; aspect-ratio: 2/3; overflow:hidden; border-radius:3px;
   border:1px solid var(--border); background: var(--surface); cursor:pointer;
-  transition: border-color .2s ease, box-shadow .2s ease;
+  transition: transform .3s ease, border-color .3s ease, box-shadow .3s ease;
+  transform-origin: center;
 }
-.champ-card:hover{ border-color: var(--verdigris); box-shadow: 0 8px 22px rgba(0,0,0,0.45); }
+.champ-card:hover{
+  transform: scale(1.08); z-index:3;
+  border-color: var(--verdigris); box-shadow: 0 16px 34px rgba(0,0,0,0.55);
+}
 .champ-card-img{ position:absolute; inset:0; overflow:hidden; }
-.champ-card-img img{ width:100%; height:100%; object-fit:cover; display:block; transition: transform .4s ease; }
-.champ-card:hover .champ-card-img img{ transform: scale(1.09); }
+.champ-card-img img{ width:100%; height:100%; object-fit:cover; display:block; }
 .champ-card-noimg{
   width:100%; height:100%; display:flex; align-items:center; justify-content:center;
-  font-family:'Cinzel', serif; font-size:38px; color: rgba(255,255,255,0.15);
+  font-family:'Cinzel', serif; font-size:54px; color: rgba(255,255,255,0.15);
   background: linear-gradient(160deg, var(--surface-2), var(--surface));
 }
 .champ-card-overlay{
-  position:absolute; left:0; right:0; bottom:0; padding:10px 10px 8px; pointer-events:none;
-  background: linear-gradient(0deg, rgba(0,0,0,0.9) 15%, rgba(0,0,0,0.55) 60%, transparent 100%);
+  position:absolute; left:0; right:0; bottom:0; padding:16px 16px 14px; pointer-events:none;
+  background: linear-gradient(0deg, rgba(8,8,10,0.94) 30%, rgba(8,8,10,0.6) 68%, transparent 100%);
+  border-top:1px solid transparent; transition: border-color .25s ease;
 }
+.champ-card:hover .champ-card-overlay{ border-top-color: var(--verdigris); }
 .champ-card-name{
-  font-family:'Cinzel', serif; font-size:13px; color:#f0ebdc; line-height:1.25;
+  font-family:'Cinzel', serif; font-size:17px; color:#f0ebdc; line-height:1.3;
   overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
 }
 .champ-card-faction{
-  font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.1em; text-transform:uppercase;
-  color: var(--text-dim); margin-top:3px;
+  font-family:'IBM Plex Mono', monospace; font-size:10.5px; letter-spacing:0.12em; text-transform:uppercase;
+  color: var(--text-dim); margin-top:4px;
 }
 .champ-card-cta{
-  font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.06em; text-transform:uppercase;
-  color: var(--verdigris); margin-top:5px; opacity:0; transform:translateY(4px);
+  font-family:'IBM Plex Mono', monospace; font-size:10px; letter-spacing:0.08em; text-transform:uppercase;
+  color: var(--verdigris); margin-top:8px; opacity:0; transform:translateY(4px);
   transition: opacity .2s ease, transform .2s ease;
 }
 .champ-card:hover .champ-card-cta{ opacity:1; transform:translateY(0); }
 @media (max-width:700px){
-  .champ-grid{ grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap:12px; }
+  .champ-grid{ grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:16px; }
+  .champ-card-name{ font-size:14px; }
 }
 
 .roster-stage{
@@ -3453,6 +3459,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=55"></script>
+<script src="dist/main.js?v=56"></script>
 </body>
 </html>
