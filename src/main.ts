@@ -857,6 +857,30 @@ let customEntriesCache: CustomEntry[] = [];
 let customPagesCache: CustomNavPage[] = [];
 let customChronoCache: CustomChronoEvent[] = [];
 let wfImagesDraft: EntryImage[] = [];
+// Fiches de personnage proposées par les joueurs (voir renderFicheRequestForm)
+// et en attente de validation — visibles uniquement des personnes connectées,
+// depuis "Mon compte" (voir renderCompte). Une fois validée (voir
+// validateFicheRequest), la fiche est publiée dans "entries" (comme une fiche
+// écrite normalement depuis l'espace d'écriture) et la demande est supprimée.
+// Tant qu'elle ne l'est pas, seul son auteur peut la modifier ou la retirer.
+interface FicheRequest {
+  id: string;
+  name: string;
+  tagline: string;
+  quote?: string;
+  faction?: string;
+  factionId?: string;
+  oxiriGene?: string;
+  specialite?: string[];
+  capacite?: string;
+  music?: string;
+  linkedIds?: string[];
+  body: string[];
+  images?: EntryImage[];
+  author: string;
+}
+let ficheRequestsCache: FicheRequest[] = [];
+let frqImagesDraft: EntryImage[] = [];
 let halcyonInfoCache: HalcyonInfo = { dirigeant: '', dirigeantDesc: '' };
 // Personnages ajoutés (en plus de ceux déjà écrits dans le code) à un palier
 // de la hiérarchie ou à l'effectif d'un escadron — voir renderOrgTree et
@@ -950,7 +974,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody','sfEditId','orgfEditId','orgfName','orgfTag','orgfCategory','orgfDesc','orgdName','orgdTag','orgdCategory','orgdDesc','orgdMusic','orgdBody'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody','sfEditId','orgfEditId','orgfName','orgfTag','orgfCategory','orgfDesc','orgdName','orgdTag','orgdCategory','orgdDesc','orgdMusic','orgdBody','frqEditId','frqName','frqTagline','frqQuote','frqFactionSelect','frqFaction','frqOxiriGene','frqSpecialite','frqCapacite','frqMusic','frqBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -962,6 +986,8 @@ function captureDraftFormState(): Record<string,string> {
   if(checkedTags.length) state['__ceTags'] = checkedTags.join(',');
   const checkedLinked = Array.from(document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck:checked')).map(c=>c.value);
   if(checkedLinked.length) state['__wfLinked'] = checkedLinked.join(',');
+  const checkedFrqLinked = Array.from(document.querySelectorAll<HTMLInputElement>('.frqLinkedCheck:checked')).map(c=>c.value);
+  if(checkedFrqLinked.length) state['__frqLinked'] = checkedFrqLinked.join(',');
   return state;
 }
 
@@ -972,6 +998,7 @@ function restoreDraftFormState(state: Record<string,string>): void {
     if(el) el.value = state[id];
   }
   if('wfFactionSelect' in state) onWfFactionSelectChange();
+  if('frqFactionSelect' in state) onFrqFactionSelectChange();
   if(state['__ceTags']){
     const tags = state['__ceTags'].split(',');
     document.querySelectorAll<HTMLInputElement>('.ceTagCheck').forEach(c=>{ c.checked = tags.includes(c.value); });
@@ -980,6 +1007,10 @@ function restoreDraftFormState(state: Record<string,string>): void {
     const linked = state['__wfLinked'].split(',');
     document.querySelectorAll<HTMLInputElement>('.wfLinkedCheck').forEach(c=>{ c.checked = linked.includes(c.value); });
   }
+  if(state['__frqLinked']){
+    const linked = state['__frqLinked'].split(',');
+    document.querySelectorAll<HTMLInputElement>('.frqLinkedCheck').forEach(c=>{ c.checked = linked.includes(c.value); });
+  }
   if(state['wfEditId']){
     const btn = document.getElementById('wfSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
     const cancelBtn = document.getElementById('wfCancelBtn'); if(cancelBtn) cancelBtn.style.display = '';
@@ -987,6 +1018,10 @@ function restoreDraftFormState(state: Record<string,string>): void {
   if(state['ceEditId']){
     const btn = document.getElementById('ceSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
     const cancelBtn = document.getElementById('ceCancelBtn'); if(cancelBtn) cancelBtn.style.display = '';
+  }
+  if(state['frqEditId']){
+    const btn = document.getElementById('frqSubmitBtn'); if(btn) btn.textContent = 'Enregistrer les modifications';
+    const cancelBtn = document.getElementById('frqCancelBtn'); if(cancelBtn) cancelBtn.style.display = '';
   }
 }
 
@@ -1030,6 +1065,24 @@ function initFirestoreSync(): void {
     render();
     restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (entries) :', err));
+
+  db.collection('ficheRequests').onSnapshot((snap: any) => {
+    const list: FicheRequest[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({
+        id: doc.id, name: data.name || '', tagline: data.tagline || '', quote: data.quote || undefined,
+        faction: data.faction || undefined, factionId: data.factionId || undefined, oxiriGene: data.oxiriGene || undefined,
+        specialite: data.specialite || undefined, capacite: data.capacite || undefined, music: data.music || undefined,
+        linkedIds: data.linkedIds || undefined, body: data.body || [], images: data.images || undefined,
+        author: data.author || 'aki',
+      });
+    });
+    ficheRequestsCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (ficheRequests) :', err));
 
   db.collection('navPages').onSnapshot((snap: any) => {
     const list: CustomNavPage[] = [];
@@ -1220,6 +1273,7 @@ function updateAuthUI(): void {
   const welcomeName = document.getElementById('authWelcomeName');
   const ecritureLink = document.getElementById('ecritureNavLink');
   const compteLink = document.getElementById('compteNavLink');
+  const demandeFicheLink = document.getElementById('demandeFicheNavLink');
   const avatar = getAvatar();
   if(btn){
     btn.innerHTML = loggedIn
@@ -1231,6 +1285,7 @@ function updateAuthUI(): void {
   if(inn) inn.style.display = loggedIn ? '' : 'none';
   if(ecritureLink) ecritureLink.style.display = loggedIn ? '' : 'none';
   if(compteLink) compteLink.style.display = loggedIn ? '' : 'none';
+  if(demandeFicheLink) demandeFicheLink.style.display = loggedIn ? '' : 'none';
 }
 
 function toggleAuthPanel(): void {
@@ -1271,6 +1326,95 @@ document.addEventListener('click', (ev)=>{
 
 function slugify(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]','g'),'').replace(/[^a-z0-9]+/g,'-').replace(/(^-|-$)/g,'');
+}
+
+// Formulaire de "Demande de fiche" : un joueur connecté écrit sa fiche de
+// personnage tranquillement, elle part dans "ficheRequests" en attente de
+// validation (visible depuis Mon compte, voir renderCompte) plutôt que
+// d'être publiée directement — contrairement à l'espace d'écriture qui
+// publie immédiatement. Reprend les mêmes champs que la fiche "Personnages"
+// de l'espace d'écriture, sans le choix de catégorie (toujours "personnages").
+function renderFicheRequestForm(): string {
+  if(!isLoggedIn()){
+    return `<div class="empty-state">Connecte-toi pour proposer une fiche de personnage.</div>`;
+  }
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Demande de fiche</div>
+    <h1 style="font-size:26px; margin-bottom:6px;">Demande de fiche</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Écris ta fiche de personnage tranquillement. Une fois envoyée, elle apparaît dans les
+      « Demandes de fiche » de <span onclick="navigate('compte')" style="cursor:pointer; text-decoration:underline;">Mon compte</span>
+      (réservées aux personnes connectées) en attendant d'être validée. Tant qu'elle ne l'est pas,
+      tu peux continuer à la modifier depuis là-bas ; une fois validée, elle rejoint la page Personnages.
+    </p>
+    <div class="write-form">
+      <input type="hidden" id="frqEditId" value="">
+      <div class="write-row">
+        <label>Nom</label>
+        <input id="frqName" type="text" placeholder="Nom du personnage…">
+      </div>
+      <div class="write-row">
+        <label>Titre / tagline</label>
+        <input id="frqTagline" type="text" placeholder="Courte description affichée sous le nom">
+      </div>
+      <div class="write-row">
+        <label>Citation (optionnel)</label>
+        <input id="frqQuote" type="text" placeholder="« ... »">
+      </div>
+      <div class="write-row">
+        <label>Faction (optionnel)</label>
+        <select id="frqFactionSelect" onchange="onFrqFactionSelectChange()">
+          <option value="">— Aucune —</option>
+          ${FACTIONS.map(f=>`<option value="${f.id}">${esc(f.name)}</option>`).join('')}
+          <option value="__custom">Autre (texte libre)…</option>
+        </select>
+        <input id="frqFaction" type="text" placeholder="Ex : Eidolon…" style="margin-top:8px; display:none;">
+        <div class="write-hint">En choisissant une faction existante, le personnage apparaîtra automatiquement dans son roster une fois la fiche validée.</div>
+      </div>
+      <div class="write-row">
+        <label>Gène d'Oxiri lié (optionnel)</label>
+        <input id="frqOxiriGene" type="text" placeholder="Ex : Kitzo, Apoleia…">
+        <div class="write-hint">S'affiche comme ligne d'info "Gène d'Oxiri lié" sur la fiche, comme pour Alice ou Sariah.</div>
+      </div>
+      <div class="write-row">
+        <label>Spécificité (optionnel)</label>
+        <input id="frqCapacite" type="text" placeholder="Ex : Androïde de dernière génération, Rang A…">
+        <div class="write-hint">S'affiche comme info courte à côté de la fiche.</div>
+      </div>
+      <div class="write-row">
+        <label>Capacité (optionnel)</label>
+        <textarea id="frqSpecialite" rows="5" placeholder="Décris la capacité en détail… peut faire plusieurs paragraphes."></textarea>
+        <div class="write-hint">S'affiche dans un grand encadré sous la fiche.</div>
+      </div>
+      <div class="write-row">
+        <label>Texte (un paragraphe par bloc de lignes)</label>
+        <textarea id="frqBody" rows="8" placeholder="Écris l'histoire ici…"></textarea>
+        <div class="write-hint">Astuce : les lignes qui se suivent forment un même paragraphe — laisse une ligne vide pour commencer un nouveau paragraphe, ou entoure tout le texte d'un paragraphe de parenthèses <code>( )</code> pour être sûr qu'il reste groupé. Commence une ligne par <code># </code> pour un titre de section, <code>- </code> pour une liste à puces, ou <code>&gt; </code> pour une citation encadrée. Entoure un mot de <code>**</code> pour le mettre en gras. Écris <code>[code]</code> suivi du texte caché puis <code>]</code> pour créer une archive verrouillée déverrouillable avec ce code (ex : <code>[1234]texte secret]</code>).</div>
+      </div>
+      <div class="write-row">
+        <label>Images (optionnel, 700 Ko au total pour cette fiche)</label>
+        <div class="write-images-list" id="frqImagesList">${frqImagesListHtml()}</div>
+        <input id="frqImageFile" type="file" accept="image/*" onchange="handleFrqImage(this)">
+      </div>
+      <div class="write-row">
+        <label>Musique (optionnel)</label>
+        <input id="frqMusic" type="url" placeholder="Lien vers un fichier audio, ou lien SoundCloud">
+        <div class="write-hint">Crée une barre de lecture sur la fiche une fois validée.</div>
+      </div>
+      <div class="write-row">
+        <label>Personnages liés (optionnel)</label>
+        <div class="write-linked-checks" id="frqLinkedChecks">
+          ${ENTRIES.filter(x=>x.cat==='personnages').map(p=>`
+            <label class="write-linked-check"><input type="checkbox" value="${p.id}" class="frqLinkedCheck"> ${esc(p.name)}</label>
+          `).join('') || '<span class="write-hint">Aucun personnage écrit pour l\'instant.</span>'}
+        </div>
+        <div class="write-hint">Les personnages cochés s'affichent en photo de profil cliquable, en haut à gauche de la fiche.</div>
+      </div>
+      <div class="write-error" id="frqError"></div>
+      <span class="btn btn-primary" id="frqSubmitBtn" onclick="submitFicheRequest()">Envoyer ma fiche</span>
+      <span class="btn btn-ghost" id="frqCancelBtn" style="display:none; margin-left:8px;" onclick="cancelFicheRequestForm()">Annuler</span>
+    </div>
+  `;
 }
 
 function renderEcriture(): string {
@@ -1530,6 +1674,54 @@ function updateWfImageCaption(i: number, value: string): void {
 function removeWfImage(i: number): void {
   wfImagesDraft.splice(i,1);
   refreshWfImagesList();
+}
+
+// Galerie d'images d'une demande de fiche (voir renderFicheRequestForm) —
+// même principe que la galerie de l'espace d'écriture (wfImagesDraft).
+function frqImagesListHtml(): string {
+  return frqImagesDraft.map((img,i)=>`
+    <div class="write-image-item">
+      <img src="${img.url}" alt="">
+      <input type="text" class="write-image-caption" placeholder="Description de cette image (optionnel)" value="${escAttr(img.caption||'')}" oninput="updateFrqImageCaption(${i}, this.value)">
+      <span class="btn btn-ghost" onclick="removeFrqImage(${i})">Retirer</span>
+    </div>`).join('');
+}
+
+function refreshFrqImagesList(): void {
+  const wrap = document.getElementById('frqImagesList');
+  if(wrap) wrap.innerHTML = frqImagesListHtml();
+}
+
+function totalFrqImagesBytes(): number {
+  return frqImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
+}
+
+function handleFrqImage(input: HTMLInputElement): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const remaining = IMAGE_BUDGET_BYTES - totalFrqImagesBytes();
+  if(file.size > remaining){
+    const remainingKo = Math.max(0, Math.floor(remaining/1024));
+    alert(`Pas assez de place : il reste environ ${remainingKo} Ko sur les 700 Ko disponibles au total pour cette fiche (toutes les images additionnées). Choisis une image plus légère ou retire-en une.`);
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    frqImagesDraft.push({ url: reader.result as string, caption: '' });
+    input.value = '';
+    refreshFrqImagesList();
+  };
+  reader.readAsDataURL(file);
+}
+
+function updateFrqImageCaption(i: number, value: string): void {
+  if(frqImagesDraft[i]) frqImagesDraft[i].caption = value;
+}
+
+function removeFrqImage(i: number): void {
+  frqImagesDraft.splice(i,1);
+  refreshFrqImagesList();
 }
 
 // Upload de la bannière/du logo d'un dossier d'escadron — même principe que
@@ -1861,6 +2053,147 @@ function deleteCustomEntry(id: string): void {
   } else {
     db.collection('entries').doc(id).delete();
   }
+}
+
+function onFrqFactionSelectChange(): void {
+  const select = document.getElementById('frqFactionSelect') as HTMLSelectElement | null;
+  const input = document.getElementById('frqFaction') as HTMLInputElement | null;
+  if(!select || !input) return;
+  const isCustom = select.value === '__custom';
+  input.style.display = isCustom ? '' : 'none';
+  if(!isCustom) input.value = '';
+}
+
+// Envoie (ou met à jour) une demande de fiche de personnage (voir
+// renderFicheRequestForm) — reste en attente dans "ficheRequests" tant
+// qu'elle n'est pas validée (voir validateFicheRequest), modifiable
+// uniquement par son auteur (voir renderCompte).
+function submitFicheRequest(): void {
+  const nameEl = document.getElementById('frqName') as HTMLInputElement | null;
+  const taglineEl = document.getElementById('frqTagline') as HTMLInputElement | null;
+  const quoteEl = document.getElementById('frqQuote') as HTMLInputElement | null;
+  const factionSelectEl = document.getElementById('frqFactionSelect') as HTMLSelectElement | null;
+  const factionEl = document.getElementById('frqFaction') as HTMLInputElement | null;
+  const oxiriGeneEl = document.getElementById('frqOxiriGene') as HTMLInputElement | null;
+  const specialiteEl = document.getElementById('frqSpecialite') as HTMLTextAreaElement | null;
+  const capaciteEl = document.getElementById('frqCapacite') as HTMLInputElement | null;
+  const musicEl = document.getElementById('frqMusic') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('frqBody') as HTMLTextAreaElement | null;
+  const editIdEl = document.getElementById('frqEditId') as HTMLInputElement | null;
+  const errEl = document.getElementById('frqError');
+  const name = (nameEl?.value || '').trim();
+  const tagline = (taglineEl?.value || '').trim();
+  const quote = (quoteEl?.value || '').trim();
+  const factionSelect = factionSelectEl?.value || '';
+  const factionId = factionSelect && factionSelect !== '__custom' ? factionSelect : '';
+  const faction = factionSelect === '__custom' ? (factionEl?.value || '').trim() : '';
+  const oxiriGene = (oxiriGeneEl?.value || '').trim();
+  const specialite = parseWriteBody(specialiteEl?.value || '');
+  const capacite = (capaciteEl?.value || '').trim();
+  const music = (musicEl?.value || '').trim();
+  const linkedIds = Array.from(document.querySelectorAll<HTMLInputElement>('.frqLinkedCheck:checked')).map(c=>c.value);
+  const body = parseWriteBody(bodyEl?.value || '');
+  const images = frqImagesDraft.slice();
+  const editId = editIdEl?.value || '';
+  if(!name || !tagline || body.length === 0){
+    if(errEl) errEl.textContent = 'Remplis au moins le nom, le titre et le texte.';
+    return;
+  }
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  if(errEl) errEl.textContent = '';
+  const data = {
+    name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null,
+    oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null,
+    music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
+    author: getCurrentUser() || 'aki',
+  };
+  const req = editId ? db.collection('ficheRequests').doc(editId).set(data, { merge: true }) : db.collection('ficheRequests').add(data);
+  req.then(()=>{ cancelFicheRequestForm(); })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function editFicheRequest(id: string): void {
+  const req = ficheRequestsCache.find(r => r.id === id);
+  if(!req) return;
+  if(!document.getElementById('frqName')){
+    navigate('demande-fiche');
+    setTimeout(()=>editFicheRequest(id), 60);
+    return;
+  }
+  (document.getElementById('frqName') as HTMLInputElement).value = req.name;
+  (document.getElementById('frqTagline') as HTMLInputElement).value = req.tagline;
+  (document.getElementById('frqQuote') as HTMLInputElement).value = req.quote || '';
+  (document.getElementById('frqFactionSelect') as HTMLSelectElement).value = req.factionId || (req.faction ? '__custom' : '');
+  (document.getElementById('frqFaction') as HTMLInputElement).value = req.faction || '';
+  onFrqFactionSelectChange();
+  (document.getElementById('frqOxiriGene') as HTMLInputElement).value = req.oxiriGene || '';
+  (document.getElementById('frqSpecialite') as HTMLTextAreaElement).value = (req.specialite || []).map(decodeBodyLineForEdit).join('\n\n');
+  (document.getElementById('frqCapacite') as HTMLInputElement).value = req.capacite || '';
+  (document.getElementById('frqMusic') as HTMLInputElement).value = req.music || '';
+  document.querySelectorAll<HTMLInputElement>('.frqLinkedCheck').forEach(c => { c.checked = (req.linkedIds || []).includes(c.value); });
+  (document.getElementById('frqBody') as HTMLTextAreaElement).value = req.body.map(decodeBodyLineForEdit).join('\n\n');
+  (document.getElementById('frqEditId') as HTMLInputElement).value = id;
+  frqImagesDraft = (req.images || []).map(img => ({ ...img }));
+  refreshFrqImagesList();
+  const btn = document.getElementById('frqSubmitBtn');
+  if(btn) btn.textContent = 'Enregistrer les modifications';
+  const cancelBtn = document.getElementById('frqCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = '';
+  document.querySelector('.write-form')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function cancelFicheRequestForm(): void {
+  (document.getElementById('frqEditId') as HTMLInputElement).value = '';
+  (document.getElementById('frqName') as HTMLInputElement).value = '';
+  (document.getElementById('frqTagline') as HTMLInputElement).value = '';
+  (document.getElementById('frqQuote') as HTMLInputElement).value = '';
+  (document.getElementById('frqFactionSelect') as HTMLSelectElement).value = '';
+  (document.getElementById('frqFaction') as HTMLInputElement).value = '';
+  onFrqFactionSelectChange();
+  (document.getElementById('frqOxiriGene') as HTMLInputElement).value = '';
+  (document.getElementById('frqSpecialite') as HTMLTextAreaElement).value = '';
+  (document.getElementById('frqCapacite') as HTMLInputElement).value = '';
+  (document.getElementById('frqMusic') as HTMLInputElement).value = '';
+  document.querySelectorAll<HTMLInputElement>('.frqLinkedCheck').forEach(c => { c.checked = false; });
+  (document.getElementById('frqBody') as HTMLTextAreaElement).value = '';
+  frqImagesDraft = [];
+  refreshFrqImagesList();
+  const fileEl = document.getElementById('frqImageFile') as HTMLInputElement | null;
+  if(fileEl) fileEl.value = '';
+  const btn = document.getElementById('frqSubmitBtn');
+  if(btn) btn.textContent = 'Envoyer ma fiche';
+  const cancelBtn = document.getElementById('frqCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = 'none';
+  const errEl = document.getElementById('frqError');
+  if(errEl) errEl.textContent = '';
+}
+
+function deleteFicheRequest(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('ficheRequests').doc(id).delete();
+}
+
+// Publie une demande de fiche dans "entries" (comme une fiche écrite
+// normalement depuis l'espace d'écriture, avec le même auteur) puis
+// supprime la demande — accessible à n'importe quelle personne connectée
+// (voir renderCompte), pas seulement à l'auteur de la demande.
+function validateFicheRequest(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  const req = ficheRequestsCache.find(r => r.id === id);
+  if(!req) return;
+  if(!confirm(`Valider la fiche de ${req.name} et la publier dans Personnages ?`)) return;
+  db.collection('entries').add({
+    cat: 'personnages', name: req.name, tagline: req.tagline, quote: req.quote || null,
+    faction: req.faction || null, factionId: req.factionId || null, oxiriGene: req.oxiriGene || null,
+    specialite: req.specialite && req.specialite.length ? req.specialite : null, capacite: req.capacite || null,
+    music: req.music || null, linkedIds: req.linkedIds && req.linkedIds.length ? req.linkedIds : null,
+    body: req.body, images: req.images || [], author: req.author,
+  }).then(()=>{
+    db.collection('ficheRequests').doc(id).delete();
+  });
 }
 
 function submitChronoEvent(): void {
@@ -2544,6 +2877,27 @@ function renderCompte(): string {
           </label>
           ${avatar ? `<span class="btn btn-ghost" onclick="removeAvatar()">Retirer</span>` : ''}
         </div>
+      </div>
+    </div>
+
+    <div class="account-section">
+      <h2 class="account-section-title">Demandes de fiche</h2>
+      <p style="color:var(--text-dim); font-size:12.5px; margin-bottom:14px;">
+        Les fiches de personnage envoyées via « Demande de fiche », en attente de validation. Tant
+        qu'une demande n'est pas validée, seul son auteur peut la modifier ou la retirer ; une fois
+        validée, elle rejoint la page Personnages.
+      </p>
+      <div class="account-list">
+        ${ficheRequestsCache.length ? ficheRequestsCache.map(r=>`
+          <div class="account-list-row">
+            <span>${esc(r.name)} <span style="color:var(--text-dim); font-size:12px;">— ${esc(r.tagline)}</span></span>
+            <span style="display:flex; gap:8px; flex-wrap:wrap;">
+              ${r.author === getCurrentUser() ? `
+              <span class="btn btn-ghost" onclick="editFicheRequest('${r.id}')">Modifier</span>
+              <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette demande ?')){ deleteFicheRequest('${r.id}'); }">Supprimer</span>` : ''}
+              <span class="btn btn-primary" onclick="validateFicheRequest('${r.id}')">Valider</span>
+            </span>
+          </div>`).join('') : `<div class="empty-state">Aucune demande de fiche en attente.</div>`}
       </div>
     </div>
 
@@ -7089,6 +7443,9 @@ function render(): void {
   } else if(route === 'ecriture'){
     if(!isLoggedIn()){ navigate('home'); return; }
     content.innerHTML = renderEcriture();
+  } else if(route === 'demande-fiche'){
+    if(!isLoggedIn()){ navigate('home'); return; }
+    content.innerHTML = renderFicheRequestForm();
   } else if(route === 'compte'){
     if(!isLoggedIn()){ navigate('home'); return; }
     content.innerHTML = renderCompte();
