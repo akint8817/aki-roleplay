@@ -657,6 +657,8 @@ let wfImagesDraft = [];
 let halcyonInfoCache = { dirigeant: '', dirigeantDesc: '' };
 let halcyonTierMembersCache = [];
 let halcyonSquadMembersCache = [];
+let halcyonTierDocsCache = [];
+let orgTierEditId = null;
 let halcyonSquadDocsCache = [];
 let halcyonSquadProjectsCache = [];
 const PROJECT_IMAGE_BUDGET_BYTES = 700 * 1024;
@@ -805,6 +807,18 @@ function initFirestoreSync() {
         render();
         restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (halcyonTierMembers) :', err));
+
+    db.collection('halcyonTierOverrides').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, label: data.label, desc: data.desc, position: typeof data.position === 'number' ? data.position : undefined });
+        });
+        halcyonTierDocsCache = list;
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (halcyonTierOverrides) :', err));
 
     db.collection('halcyonSquadMembers').onSnapshot((snap) => {
         const list = [];
@@ -1554,6 +1568,54 @@ function deleteHalcyonTierMember(id) {
     if (!db) return;
     db.collection('halcyonTierMembers').doc(id).delete();
 }
+function addOrgTier(besideId) {
+    const labelEl = document.getElementById('otLabel');
+    const descEl = document.getElementById('otDesc');
+    const errEl = document.getElementById('otError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const label = (labelEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!label) { if (errEl) errEl.textContent = 'Donne un nom au palier.'; return; }
+    if (errEl) errEl.textContent = '';
+    const tiers = getAllHierarchyTiers();
+    let position;
+    if (besideId === 'top') position = (tiers[0]?.position ?? 0) - 10;
+    else if (besideId === 'bottom') position = (tiers[tiers.length - 1]?.position ?? 0) + 10;
+    else {
+        const ref = besideId ? tiers.find(t => t.id === besideId) : undefined;
+        position = ref ? ref.position : (tiers[tiers.length - 1]?.position ?? 0) + 10;
+    }
+    db.collection('halcyonTierOverrides').add({ label, desc, position })
+        .then(() => {
+            if (labelEl) labelEl.value = '';
+            if (descEl) descEl.value = '';
+        })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function toggleOrgTierEditMode(id) {
+    orgTierEditId = orgTierEditId === id ? null : id;
+    render();
+}
+function saveOrgTier(id) {
+    const labelEl = document.getElementById('otEditLabel-' + id);
+    const descEl = document.getElementById('otEditDesc-' + id);
+    const errEl = document.getElementById('otEditError-' + id);
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const label = (labelEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!label) { if (errEl) errEl.textContent = 'Donne un nom au palier.'; return; }
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonTierOverrides').doc(id).set({ label, desc }, { merge: true })
+        .then(() => { orgTierEditId = null; render(); })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function deleteOrgTier(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('halcyonTierOverrides').doc(id).delete();
+}
 function addHalcyonSquadMember(squadId) {
     const selectEl = document.getElementById('hsmSelect-' + squadId);
     const errEl = document.getElementById('hsmError-' + squadId);
@@ -1868,6 +1930,20 @@ const HALCYON_HIERARCHY = [
         desc: "Ooofff… vous êtes des stagiaires, ici pour observer et apprendre de l'organisation. N'oublie pas de faire signer ta convention !",
         memberIds: [] },
 ];
+function getAllHierarchyTiers() {
+    const baseIds = new Set(HALCYON_HIERARCHY.map(t => t.id));
+    const overrides = new Map(halcyonTierDocsCache.map(d => [d.id, d]));
+    const merged = HALCYON_HIERARCHY.map((t, i) => {
+        const o = overrides.get(t.id);
+        const basePosition = i * 10;
+        return o ? { ...t, label: o.label ?? t.label, desc: o.desc ?? t.desc, position: o.position ?? basePosition } : { ...t, position: basePosition };
+    });
+    const customs = halcyonTierDocsCache.filter(d => !baseIds.has(d.id)).map(d => ({
+        id: d.id, label: d.label || 'Nouveau palier', desc: d.desc || '', memberIds: [],
+        position: typeof d.position === 'number' ? d.position : 9999,
+    }));
+    return [...merged, ...customs].sort((a, b) => a.position - b.position);
+}
 function factionIconSvg(id, size) {
     const f = FACTIONS.find(x => x.id === id);
     if (!f)
@@ -3559,46 +3635,87 @@ function initNewsIntro() {
     window.setTimeout(() => { intro.classList.add('done'); }, 1900);
 }
 /* ---------------- HALCYON — page de présentation de l'organisation ---------------- */
+function orgTierNodeHtml(tier) {
+    const isBase = HALCYON_HIERARCHY.some(t => t.id === tier.id);
+    const hasOverride = halcyonTierDocsCache.some(d => d.id === tier.id);
+    const editing = orgTierEditId === tier.id;
+    if (editing) {
+        return `
+      <div class="org-chart-node">
+        <div class="write-row"><label>Nom du palier</label><input id="otEditLabel-${tier.id}" type="text" value="${escAttr(tier.label)}"></div>
+        <div class="write-row"><label>Description</label><textarea id="otEditDesc-${tier.id}" rows="4">${esc(tier.desc)}</textarea></div>
+        <div class="write-error" id="otEditError-${tier.id}"></div>
+        <div style="display:flex; gap:8px;">
+          <span class="btn btn-primary btn-sm" onclick="saveOrgTier('${tier.id}')">Enregistrer</span>
+          <span class="btn btn-ghost btn-sm" onclick="toggleOrgTierEditMode('${tier.id}')">Annuler</span>
+        </div>
+      </div>`;
+    }
+    const customMembers = halcyonTierMembersCache.filter(m => m.groupId === tier.id);
+    const hasAny = tier.memberIds.length || customMembers.length;
+    const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !tier.memberIds.includes(e.id) && !customMembers.some(m => m.entryId === e.id)) : [];
+    return `
+    <div class="org-chart-node">
+      <div class="org-tier-label">${esc(tier.label)}</div>
+      <p class="org-tier-desc">${esc(tier.desc)}</p>
+      <div class="org-tier-members">
+        ${hasAny
+        ? [
+            ...tier.memberIds.map(id => {
+                const e = findEntry(id);
+                return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
+            }),
+            ...customMembers.map(m => {
+                const e = findEntry(m.entryId);
+                if (!e) return '';
+                return `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); deleteHalcyonTierMember('${m.id}')">✕</span>` : ''}</span>`;
+            }),
+        ].join('')
+        : `<span class="org-tier-empty">Aucun personnage recensé pour l'instant.</span>`}
+      </div>
+      ${halcyonEditMode ? `
+      <div class="halcyon-inline-add-row">
+        <select id="htmSelect-${tier.id}">
+          <option value="">— Ajouter un personnage —</option>
+          ${candidates.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
+        </select>
+        <span class="btn btn-ghost btn-sm" onclick="addHalcyonTierMember('${tier.id}')">+ Ajouter</span>
+      </div>
+      <div class="write-error" id="htmError-${tier.id}"></div>
+      <div class="org-tier-actions">
+        <span class="btn btn-ghost btn-sm" onclick="toggleOrgTierEditMode('${tier.id}')">✎ Modifier le texte</span>
+        <span class="btn btn-ghost btn-sm" onclick="addOrgTier('${tier.id}')">+ Ajouter à côté</span>
+        ${isBase
+        ? (hasOverride ? `<span class="btn btn-ghost btn-sm" onclick="if(confirm('Réinitialiser ce palier au texte d\\'origine ?')){ deleteOrgTier('${tier.id}'); }">↺ Réinitialiser</span>` : '')
+        : `<span class="btn btn-ghost btn-sm" onclick="if(confirm('Supprimer définitivement ce palier ?')){ deleteOrgTier('${tier.id}'); }">✕ Supprimer</span>`}
+      </div>` : ''}
+    </div>`;
+}
 function renderOrgTree() {
-    const tiers = HALCYON_HIERARCHY;
+    const tiers = getAllHierarchyTiers();
+    const rows = [];
+    for (const t of tiers) {
+        const lastRow = rows[rows.length - 1];
+        if (lastRow && lastRow[0].position === t.position) lastRow.push(t);
+        else rows.push([t]);
+    }
     return `
     <div class="org-chart">
-      ${tiers.map((tier, i) => {
-        const customMembers = halcyonTierMembersCache.filter(m => m.groupId === tier.id);
-        const hasAny = tier.memberIds.length || customMembers.length;
-        const candidates = halcyonEditMode ? allCharacterEntries().filter(e => !tier.memberIds.includes(e.id) && !customMembers.some(m => m.entryId === e.id)) : [];
-        return `
-        <div class="org-chart-node">
-          <div class="org-tier-label">${esc(tier.label)}</div>
-          <p class="org-tier-desc">${esc(tier.desc)}</p>
-          <div class="org-tier-members">
-            ${hasAny
-            ? [
-                ...tier.memberIds.map(id => {
-                    const e = findEntry(id);
-                    return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
-                }),
-                ...customMembers.map(m => {
-                    const e = findEntry(m.entryId);
-                    if (!e) return '';
-                    return `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); deleteHalcyonTierMember('${m.id}')">✕</span>` : ''}</span>`;
-                }),
-            ].join('')
-            : `<span class="org-tier-empty">Aucun personnage recensé pour l'instant.</span>`}
-          </div>
-          ${halcyonEditMode ? `
-          <div class="halcyon-inline-add-row">
-            <select id="htmSelect-${tier.id}">
-              <option value="">— Ajouter un personnage —</option>
-              ${candidates.map(e => `<option value="${e.id}">${esc(e.name)}</option>`).join('')}
-            </select>
-            <span class="btn btn-ghost btn-sm" onclick="addHalcyonTierMember('${tier.id}')">+ Ajouter</span>
-          </div>
-          <div class="write-error" id="htmError-${tier.id}"></div>` : ''}
-        </div>
-        ${i < tiers.length - 1 ? `<div class="org-chart-connector"><span class="org-chart-connector-line"></span><span class="org-chart-connector-chevron">⌄</span><span class="org-chart-connector-line"></span></div>` : ''}`;
-    }).join('')}
+      ${rows.map((row, i) => `
+        <div class="org-chart-row">${row.map(orgTierNodeHtml).join('')}</div>
+        ${i < rows.length - 1 ? `<div class="org-chart-connector"><span class="org-chart-connector-line"></span><span class="org-chart-connector-chevron">⌄</span><span class="org-chart-connector-line"></span></div>` : ''}`).join('')}
     </div>
+    ${halcyonEditMode ? `
+    <div class="write-form halcyon-edit-panel" style="max-width:480px; margin-top:20px;">
+      <div class="write-row"><label>Nom du nouveau palier</label><input id="otLabel" type="text" placeholder="Ex : Conseil des Anciens"></div>
+      <div class="write-row"><label>Description</label><textarea id="otDesc" rows="3" placeholder="Description du palier…"></textarea></div>
+      <div class="write-error" id="otError"></div>
+      <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <span class="btn btn-primary btn-sm" onclick="addOrgTier('top')">+ Tout en haut</span>
+        <span class="btn btn-primary btn-sm" onclick="addOrgTier('bottom')">+ Tout en bas</span>
+      </div>
+      <div class="write-hint">Pour ajouter une branche à côté d'un palier précis, utilise le bouton « + Ajouter à côté » sur ce palier — il reprend le nom et la description remplis ci-dessus.</div>
+    </div>` : ''}
   `;
 }
 function renderSquadRoster(squad) {

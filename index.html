@@ -1592,8 +1592,9 @@ h1,h2,h3,h4{
 
 /* ---- Hiérarchie Halcyon : organigramme (nœuds reliés par des connecteurs) ---- */
 .org-chart{ display:flex; flex-direction:column; align-items:center; margin-bottom: 36px; }
+.org-chart-row{ display:flex; gap:20px; justify-content:center; align-items:stretch; flex-wrap:wrap; width:100%; }
 .org-chart-node{
-  position:relative; width:100%; max-width:640px;
+  position:relative; flex:1 1 380px; max-width:640px;
   border: 1px solid var(--border);
   background: var(--surface);
   padding: 16px 22px 16px 20px;
@@ -1625,6 +1626,7 @@ h1,h2,h3,h4{
 .org-tier-chip-remove{ margin-left:4px; opacity:0.7; }
 .org-tier-chip-remove:hover{ opacity:1; }
 .org-tier-empty{ font-size:11.5px; color: var(--text-dim); font-style:italic; }
+.org-tier-actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; padding-top:10px; border-top:1px dashed var(--border); }
 
 /* ---- Escadrons Halcyon : grille de cartes-dossier ---- */
 .squad-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(260px,1fr)); gap:20px; margin-bottom:26px; }
@@ -3396,6 +3398,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=47"></script>
+<script src="dist/main.js?v=48"></script>
 </body>
 </html>
