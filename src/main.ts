@@ -921,6 +921,17 @@ const SQUAD_IMAGE_BUDGET_BYTES = 900 * 1024;
 let sqdImageDraft = '';
 let sqdLogoDraft = '';
 
+// Bannière + logo d'une organisation — même principe que pour un escadron,
+// mais deux jeux de brouillons séparés : un pour le formulaire de
+// création/édition dans l'espace d'écriture (orgf*), un pour le dossier
+// complet d'une organisation déjà créée (orgd*, voir renderOrganisationDossier).
+const ORG_IMAGE_BUDGET_BYTES = 900 * 1024;
+let orgfImageDraft = '';
+let orgfLogoDraft = '';
+let orgdImageDraft = '';
+let orgdLogoDraft = '';
+let orgDossierEditId: string | null = null;
+
 function estimateImageBytes(dataUrl: string): number {
   const commaIdx = dataUrl.indexOf(',');
   const b64 = commaIdx >= 0 ? dataUrl.slice(commaIdx+1) : dataUrl;
@@ -939,7 +950,7 @@ function totalWfImagesBytes(): number {
 // tapé. On capture donc son brouillon juste avant le re-rendu et on le
 // restaure juste après, pour que la synchronisation en temps réel n'écrase
 // jamais un texte en cours de rédaction.
-const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody','sfEditId'];
+const DRAFT_FIELD_IDS = ['wfCat','wfName','wfTagline','wfQuote','wfFactionSelect','wfFaction','wfOxiriGene','wfSpecialite','wfCapacite','wfMusic','wfBody','wfEditId','ceDate','ceTitle','ceBody','ceEditId','cnpLabel','cnpBody','hiDirigeant','hiDirigeantDesc','hsqName','hsqDesc','sqdName','sqdDesc','sqdTag','sqdCategory','sqdMusic','sqdBody','sfTitle','sfDanger','sfBody','sfEditId','orgfEditId','orgfName','orgfTag','orgfCategory','orgfDesc','orgdName','orgdTag','orgdCategory','orgdDesc','orgdMusic','orgdBody'];
 
 function captureDraftFormState(): Record<string,string> {
   const state: Record<string,string> = {};
@@ -1103,6 +1114,21 @@ function initFirestoreSync(): void {
     render();
     restoreDraftFormState(draft);
   }, (err: any) => console.error('Firestore (halcyonSquads) :', err));
+
+  db.collection('organisations').onSnapshot((snap: any) => {
+    // Même principe que halcyonSquads ci-dessus, mais pour les organisations
+    // (voir getAllOrganisations) — un id qui correspond à ORGANISATIONS
+    // surcharge ses champs, un id inconnu est une nouvelle organisation.
+    const list: (Partial<Organisation> & { id: string })[] = [];
+    snap.forEach((doc: any) => {
+      const data = doc.data();
+      list.push({ id: doc.id, name: data.name, desc: data.desc, tag: data.tag, category: data.category, image: data.image, logo: data.logo, music: data.music, body: data.body });
+    });
+    organisationDocsCache = list;
+    const draft = captureDraftFormState();
+    render();
+    restoreDraftFormState(draft);
+  }, (err: any) => console.error('Firestore (organisations) :', err));
 
   db.collection('halcyonSquadProjects').onSnapshot((snap: any) => {
     const list: SquadProject[] = [];
@@ -1380,6 +1406,45 @@ function renderEcriture(): string {
       <span class="btn btn-ghost" id="ceCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditChronoEvent()">Annuler</span>
     </div>
 
+    <h1 style="font-size:26px; margin:44px 0 6px;">Organisations</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Crée une nouvelle organisation, avec sa bannière et son logo — elle apparaît directement dans
+      le menu « Organisations », visible par tous les visiteurs du site. Halcyon est déjà là : tu
+      peux modifier sa carte (image, logo, tag, catégorie, résumé) depuis la liste ci-dessous, sans
+      toucher à sa page dédiée.
+    </p>
+    <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+      <input type="hidden" id="orgfEditId" value="">
+      <div class="write-row"><label>Nom</label><input id="orgfName" type="text" placeholder="Ex : Groupe Astia"></div>
+      <div class="write-row"><label>Tag de la bannière</label><input id="orgfTag" type="text" placeholder="Ex : ASTIA — sinon le nom est utilisé"></div>
+      <div class="write-row"><label>Catégorie</label><input id="orgfCategory" type="text" placeholder="Ex : Mégacorporation"></div>
+      <div class="write-row"><label>Description courte (carte de la liste)</label><textarea id="orgfDesc" rows="3" placeholder="Ce qui s'affiche sur la carte, dans la liste des organisations…"></textarea></div>
+      <div class="write-row">
+        <label>Image de bannière (optionnel)</label>
+        <div class="write-images-list" id="orgfImagePreview">${orgFormImagePreviewHtml('image')}</div>
+        <input id="orgfImageFile" type="file" accept="image/*" onchange="handleOrgFormImage(this,'image')">
+      </div>
+      <div class="write-row">
+        <label>Logo / emblème (optionnel)</label>
+        <div class="write-images-list" id="orgfLogoPreview">${orgFormImagePreviewHtml('logo')}</div>
+        <input id="orgfLogoFile" type="file" accept="image/*" onchange="handleOrgFormImage(this,'logo')">
+      </div>
+      <div class="write-error" id="orgfError"></div>
+      <span class="btn btn-primary" id="orgfSubmitBtn" onclick="saveOrganisationForm()">Ajouter l'organisation</span>
+      <span class="btn btn-ghost" id="orgfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditOrganisationForm()">Annuler</span>
+      <div class="write-hint">Le texte complet du dossier (paragraphes, musique) se modifie depuis la page de l'organisation une fois créée.</div>
+    </div>
+    <div class="account-list">
+      ${getAllOrganisations().map(o=>`
+        <div class="account-list-row">
+          <span>${esc(o.name)}</span>
+          <span style="display:flex; gap:8px;">
+            <span class="btn btn-ghost" onclick="editOrganisationForm('${o.id}')">Modifier</span>
+            ${o.id !== 'halcyon' ? `<span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette organisation ?')){ deleteOrganisation('${o.id}'); }">Supprimer</span>` : ''}
+          </span>
+        </div>`).join('')}
+    </div>
+
     <h1 style="font-size:26px; margin:44px 0 6px;">Fichiers secrets</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
       Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
@@ -1571,6 +1636,92 @@ function refreshSquadDossierImagePreviews(): void {
   if(imgWrap) imgWrap.innerHTML = squadImagePreviewHtml('image');
   const logoWrap = document.getElementById('sqdLogoPreview');
   if(logoWrap) logoWrap.innerHTML = squadImagePreviewHtml('logo');
+}
+
+// Image de bannière/logo du formulaire de création/édition d'une
+// organisation, dans l'espace d'écriture (voir renderEcriture).
+function handleOrgFormImage(input: HTMLInputElement, field: 'image' | 'logo'): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const other = field === 'image' ? orgfLogoDraft : orgfImageDraft;
+  const remaining = ORG_IMAGE_BUDGET_BYTES - (other ? estimateImageBytes(other) : 0);
+  if(file.size > remaining){
+    const remainingKo = Math.max(0, Math.floor(remaining/1024));
+    alert(`Image trop lourde : il reste environ ${remainingKo} Ko disponibles (bannière et logo partagent le même budget).`);
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    if(field === 'image') orgfImageDraft = reader.result as string;
+    else orgfLogoDraft = reader.result as string;
+    input.value = '';
+    refreshOrgFormImagePreviews();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeOrgFormImage(field: 'image' | 'logo'): void {
+  if(field === 'image') orgfImageDraft = '';
+  else orgfLogoDraft = '';
+  refreshOrgFormImagePreviews();
+}
+
+function orgFormImagePreviewHtml(field: 'image' | 'logo'): string {
+  const val = field === 'image' ? orgfImageDraft : orgfLogoDraft;
+  return val
+    ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeOrgFormImage('${field}')">Retirer</span></div>`
+    : '';
+}
+
+function refreshOrgFormImagePreviews(): void {
+  const imgWrap = document.getElementById('orgfImagePreview');
+  if(imgWrap) imgWrap.innerHTML = orgFormImagePreviewHtml('image');
+  const logoWrap = document.getElementById('orgfLogoPreview');
+  if(logoWrap) logoWrap.innerHTML = orgFormImagePreviewHtml('logo');
+}
+
+// Image de bannière/logo du dossier complet d'une organisation déjà créée
+// (voir renderOrganisationDossier) — même principe que pour un escadron.
+function handleOrgDossierImage(input: HTMLInputElement, field: 'image' | 'logo'): void {
+  const file = input.files && input.files[0];
+  if(!file) return;
+  const other = field === 'image' ? orgdLogoDraft : orgdImageDraft;
+  const remaining = ORG_IMAGE_BUDGET_BYTES - (other ? estimateImageBytes(other) : 0);
+  if(file.size > remaining){
+    const remainingKo = Math.max(0, Math.floor(remaining/1024));
+    alert(`Image trop lourde : il reste environ ${remainingKo} Ko disponibles (bannière et logo partagent le même budget).`);
+    input.value = '';
+    return;
+  }
+  const reader = new FileReader();
+  reader.onload = () => {
+    if(field === 'image') orgdImageDraft = reader.result as string;
+    else orgdLogoDraft = reader.result as string;
+    input.value = '';
+    refreshOrgDossierImagePreviews();
+  };
+  reader.readAsDataURL(file);
+}
+
+function removeOrgDossierImage(field: 'image' | 'logo'): void {
+  if(field === 'image') orgdImageDraft = '';
+  else orgdLogoDraft = '';
+  refreshOrgDossierImagePreviews();
+}
+
+function orgDossierImagePreviewHtml(field: 'image' | 'logo'): string {
+  const val = field === 'image' ? orgdImageDraft : orgdLogoDraft;
+  return val
+    ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeOrgDossierImage('${field}')">Retirer</span></div>`
+    : '';
+}
+
+function refreshOrgDossierImagePreviews(): void {
+  const imgWrap = document.getElementById('orgdImagePreview');
+  if(imgWrap) imgWrap.innerHTML = orgDossierImagePreviewHtml('image');
+  const logoWrap = document.getElementById('orgdLogoPreview');
+  if(logoWrap) logoWrap.innerHTML = orgDossierImagePreviewHtml('logo');
 }
 
 // Bascule l'affichage du champ de texte libre "Faction" : seulement visible
@@ -2113,6 +2264,125 @@ function toggleSquadDossierEditMode(id: string): void {
   render();
 }
 
+// Crée ou met à jour une organisation depuis le formulaire de l'espace
+// d'écriture (voir renderEcriture) — l'id présent dans le champ caché
+// #orgfEditId détermine s'il s'agit d'un ajout ou d'une modification (y
+// compris pour surcharger Halcyon lui-même : voir getAllOrganisations).
+function saveOrganisationForm(): void {
+  const editIdEl = document.getElementById('orgfEditId') as HTMLInputElement | null;
+  const nameEl = document.getElementById('orgfName') as HTMLInputElement | null;
+  const tagEl = document.getElementById('orgfTag') as HTMLInputElement | null;
+  const categoryEl = document.getElementById('orgfCategory') as HTMLInputElement | null;
+  const descEl = document.getElementById('orgfDesc') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('orgfError');
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const editId = editIdEl?.value || '';
+  const name = (nameEl?.value || '').trim();
+  if(!name){ if(errEl) errEl.textContent = "Donne un nom à l'organisation."; return; }
+  if(errEl) errEl.textContent = '';
+  const data = {
+    name,
+    tag: (tagEl?.value || '').trim(),
+    category: (categoryEl?.value || '').trim(),
+    desc: (descEl?.value || '').trim(),
+    image: orgfImageDraft,
+    logo: orgfLogoDraft,
+  };
+  const req = editId ? db.collection('organisations').doc(editId).set(data, { merge: true }) : db.collection('organisations').add(data);
+  req.then(()=>{ cancelEditOrganisationForm(); })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function editOrganisationForm(id: string): void {
+  const org = getAllOrganisations().find(o => o.id === id);
+  if(!org) return;
+  (document.getElementById('orgfEditId') as HTMLInputElement).value = id;
+  (document.getElementById('orgfName') as HTMLInputElement).value = org.name;
+  (document.getElementById('orgfTag') as HTMLInputElement).value = org.tag || '';
+  (document.getElementById('orgfCategory') as HTMLInputElement).value = org.category || '';
+  (document.getElementById('orgfDesc') as HTMLTextAreaElement).value = org.desc;
+  orgfImageDraft = org.image || '';
+  orgfLogoDraft = org.logo || '';
+  refreshOrgFormImagePreviews();
+  const btn = document.getElementById('orgfSubmitBtn');
+  if(btn) btn.textContent = 'Enregistrer les modifications';
+  const cancelBtn = document.getElementById('orgfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = '';
+  document.querySelector('.write-form')?.scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+function cancelEditOrganisationForm(): void {
+  const editIdEl = document.getElementById('orgfEditId') as HTMLInputElement | null;
+  const nameEl = document.getElementById('orgfName') as HTMLInputElement | null;
+  const tagEl = document.getElementById('orgfTag') as HTMLInputElement | null;
+  const categoryEl = document.getElementById('orgfCategory') as HTMLInputElement | null;
+  const descEl = document.getElementById('orgfDesc') as HTMLTextAreaElement | null;
+  if(editIdEl) editIdEl.value = '';
+  if(nameEl) nameEl.value = '';
+  if(tagEl) tagEl.value = '';
+  if(categoryEl) categoryEl.value = '';
+  if(descEl) descEl.value = '';
+  orgfImageDraft = '';
+  orgfLogoDraft = '';
+  refreshOrgFormImagePreviews();
+  const btn = document.getElementById('orgfSubmitBtn');
+  if(btn) btn.textContent = "Ajouter l'organisation";
+  const cancelBtn = document.getElementById('orgfCancelBtn');
+  if(cancelBtn) cancelBtn.style.display = 'none';
+}
+
+// Supprime une organisation créée depuis le site (impossible pour Halcyon,
+// qui est écrit dans le code — voir renderEcriture, qui ne montre pas ce
+// bouton pour elle).
+function deleteOrganisation(id: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  db.collection('organisations').doc(id).delete();
+}
+
+// Sauvegarde tous les champs détaillés du dossier d'une organisation (voir
+// renderOrganisationDossier) — fonctionne aussi bien pour surcharger Halcyon
+// que pour modifier une organisation créée depuis le site.
+function saveOrganisationDossier(id: string): void {
+  const nameEl = document.getElementById('orgdName') as HTMLInputElement | null;
+  const descEl = document.getElementById('orgdDesc') as HTMLTextAreaElement | null;
+  const tagEl = document.getElementById('orgdTag') as HTMLInputElement | null;
+  const categoryEl = document.getElementById('orgdCategory') as HTMLInputElement | null;
+  const musicEl = document.getElementById('orgdMusic') as HTMLInputElement | null;
+  const bodyEl = document.getElementById('orgdBody') as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('orgdError');
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const name = (nameEl?.value || '').trim();
+  const desc = (descEl?.value || '').trim();
+  if(!name){ if(errEl) errEl.textContent = "Donne un nom à l'organisation."; return; }
+  if(errEl) errEl.textContent = '';
+  const body = parseWriteBody(bodyEl?.value || '');
+  db.collection('organisations').doc(id).set({
+    name, desc,
+    tag: (tagEl?.value || '').trim(),
+    category: (categoryEl?.value || '').trim(),
+    image: orgdImageDraft,
+    logo: orgdLogoDraft,
+    music: (musicEl?.value || '').trim(),
+    body,
+  }, { merge: true })
+    .then(()=>{ orgDossierEditId = null; render(); })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+
+function toggleOrgDossierEditMode(id: string): void {
+  const wasEditingThis = orgDossierEditId === id;
+  orgDossierEditId = wasEditingThis ? null : id;
+  if(!wasEditingThis){
+    const org = getAllOrganisations().find(o => o.id === id);
+    orgdImageDraft = org?.image || '';
+    orgdLogoDraft = org?.logo || '';
+  }
+  render();
+}
+
 // Cartes "projets" affichées sur le dossier d'un escadron (voir
 // renderSquadDossier), façon fiches d'équipement.
 function addSquadProject(squadId: string): void {
@@ -2341,6 +2611,66 @@ const SQUADS: Squad[] = [
   { id:'oracle', name:'Escadron Oracle', category:"Escadron d'élite",
     desc:"Une unité d'élite de Halcyon commandée par Sariah Frosleaf, vouée à l'annihilation d'Oxiri." },
 ];
+
+/* ---------------- ORGANISATIONS (page "Organisations" du menu) ---------------- */
+// Une organisation a une carte dans la liste (voir renderOrganisationsList)
+// et un dossier complet (voir renderOrganisationDossier), sur le même
+// principe que les escadrons (Squad) — bannière, logo, catégorie, tag,
+// résumé, texte riche, musique. Halcyon est la seule organisation écrite en
+// dur : cliquer sur sa carte ouvre sa page dédiée existante (renderHalcyonPage)
+// plutôt qu'un dossier générique, mais sa carte (image, logo, tag, catégorie,
+// résumé) reste modifiable comme n'importe quelle autre organisation depuis
+// l'espace d'écriture.
+interface Organisation {
+  id: string;
+  name: string;
+  desc: string;
+  tag?: string;
+  category?: string;
+  image?: string;
+  logo?: string;
+  music?: string;
+  body?: string[];
+}
+
+const ORGANISATIONS: Organisation[] = [
+  { id:'halcyon', name:'Halcyon', tag:'HALCYON', category:"Organisation Oxirienne",
+    desc:"L'organisation qui conçoit et augmente les hybrides de rang, les employant comme armes vivantes sur le champ de bataille." },
+];
+
+let organisationDocsCache: (Partial<Organisation> & { id: string })[] = [];
+
+// Fusionne les organisations écrites dans le code (ORGANISATIONS) avec les
+// documents Firestore "organisations" : un id qui correspond à une
+// organisation du code surcharge ses champs, un id inconnu est une toute
+// nouvelle organisation — exactement comme getAllSquads pour les escadrons.
+function getAllOrganisations(): Organisation[] {
+  const overridesById: Record<string, Partial<Organisation> & { id: string }> = {};
+  const customList: Organisation[] = [];
+  organisationDocsCache.forEach(doc => {
+    if(ORGANISATIONS.some(o => o.id === doc.id)) overridesById[doc.id] = doc;
+    else customList.push({
+      id: doc.id, name: doc.name || '', desc: doc.desc || '',
+      tag: doc.tag, category: doc.category, image: doc.image, logo: doc.logo, music: doc.music, body: doc.body,
+    });
+  });
+  const merged = ORGANISATIONS.map(o => {
+    const ov = overridesById[o.id];
+    if(!ov) return o;
+    return {
+      ...o,
+      name: ov.name || o.name,
+      desc: ov.desc || o.desc,
+      tag: ov.tag !== undefined ? ov.tag : o.tag,
+      category: ov.category !== undefined ? ov.category : o.category,
+      image: ov.image !== undefined ? ov.image : o.image,
+      logo: ov.logo !== undefined ? ov.logo : o.logo,
+      music: ov.music !== undefined ? ov.music : o.music,
+      body: ov.body !== undefined ? ov.body : o.body,
+    };
+  });
+  return [...merged, ...customList];
+}
 
 /* ---------------- HIÉRARCHIE HALCYON ---------------- */
 interface HierarchyTier {
@@ -4551,6 +4881,108 @@ function renderSquads(): string {
   `;
 }
 
+// Liste de toutes les organisations (Halcyon + celles créées depuis
+// l'espace d'écriture) sous forme de cartes-dossier, même style que les
+// escadrons. Cliquer sur la carte de Halcyon ouvre sa page dédiée existante
+// (renderHalcyonPage) ; les autres ouvrent un dossier générique (voir
+// renderOrganisationDossier).
+function renderOrganisationsList(): string {
+  const orgs = getAllOrganisations();
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Organisations</div>
+    <h1 style="font-size:26px; margin-bottom:6px;">Organisations</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Les grandes organisations qui façonnent le monde.
+      ${isLoggedIn() ? `Une nouvelle organisation se crée depuis l'<span onclick="navigate('ecriture')" style="cursor:pointer; text-decoration:underline;">espace d'écriture</span>.` : ''}
+    </p>
+    <div class="squad-grid">
+      ${orgs.map(o=>{
+        const tag = (o.tag || o.name).toUpperCase();
+        const targetRoute = o.id === 'halcyon' ? 'halcyon' : 'organisation-' + o.id;
+        return `
+        <div class="squad-dossier-card" onclick="navigate('${targetRoute}')">
+          <div class="squad-dossier-banner"${o.image ? ` style="background-image:url('${o.image}')"` : ''}>
+            <span class="squad-dossier-tag">${esc(tag)}</span>
+          </div>
+          <div class="squad-dossier-card-body">
+            <div class="squad-dossier-card-head">
+              <div>
+                <div class="squad-dossier-card-name">${esc(o.name)}</div>
+                ${o.category ? `<div class="squad-dossier-card-category">${esc(o.category.toUpperCase())}</div>` : ''}
+              </div>
+              <div class="squad-dossier-card-logo">${o.logo ? `<img src="${o.logo}" alt="">` : esc(o.name.charAt(0))}</div>
+            </div>
+            <p class="squad-dossier-card-desc">${esc(o.desc)}</p>
+            <span class="squad-dossier-card-link">Consulter le dossier →</span>
+          </div>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
+// Dossier complet d'une organisation créée depuis le site (voir
+// renderOrganisationsList) — Halcyon n'utilise pas cette page, elle a la
+// sienne (renderHalcyonPage), mais sa carte dans la liste partage le même
+// modèle de données (voir getAllOrganisations).
+function renderOrganisationDossier(id: string): string {
+  const orgs = getAllOrganisations();
+  const idx = orgs.findIndex(o => o.id === id);
+  const org = orgs[idx];
+  if(!org) return renderNotFound();
+  const docCode = String(idx+1).padStart(3,'0');
+  const editing = orgDossierEditId === id;
+  return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('organisations')" style="cursor:pointer">Organisations</span> / ${esc(org.name)}</div>
+    ${editing ? `
+    <div class="write-form halcyon-edit-panel" style="max-width:640px;">
+      <div class="write-row"><label>Nom</label><input id="orgdName" type="text" value="${escAttr(org.name)}"></div>
+      <div class="write-row"><label>Résumé (carte de la liste)</label><textarea id="orgdDesc" rows="3">${esc(org.desc)}</textarea></div>
+      <div class="write-row"><label>Tag de la bannière</label><input id="orgdTag" type="text" value="${escAttr(org.tag||'')}" placeholder="Ex : ASTIA — sinon le nom est utilisé"></div>
+      <div class="write-row"><label>Catégorie</label><input id="orgdCategory" type="text" value="${escAttr(org.category||'')}" placeholder="Ex : Mégacorporation"></div>
+      <div class="write-row">
+        <label>Image de bannière (optionnel)</label>
+        <div class="write-images-list" id="orgdImagePreview">${orgDossierImagePreviewHtml('image')}</div>
+        <input id="orgdImageFile" type="file" accept="image/*" onchange="handleOrgDossierImage(this,'image')">
+      </div>
+      <div class="write-row">
+        <label>Logo / emblème (optionnel)</label>
+        <div class="write-images-list" id="orgdLogoPreview">${orgDossierImagePreviewHtml('logo')}</div>
+        <input id="orgdLogoFile" type="file" accept="image/*" onchange="handleOrgDossierImage(this,'logo')">
+      </div>
+      <div class="write-row"><label>Musique de fond (URL)</label><input id="orgdMusic" type="url" value="${escAttr(org.music||'')}" placeholder="Lien SoundCloud, fichier audio…"></div>
+      <div class="write-row">
+        <label>Texte du dossier (un paragraphe par bloc de lignes)</label>
+        <textarea id="orgdBody" rows="8">${esc((org.body && org.body.length ? org.body : [org.desc]).join('\n\n'))}</textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras, <code>[code]texte]</code> pour une archive verrouillée.</div>
+      </div>
+      <div class="write-error" id="orgdError"></div>
+      <span class="btn btn-primary" onclick="saveOrganisationDossier('${id}')">Enregistrer</span>
+      <span class="btn btn-ghost" onclick="toggleOrgDossierEditMode('${id}')">Annuler</span>
+    </div>` : `
+    <div class="dossier-file">
+      <div class="dossier-file-top">
+        <div class="dossier-file-num">DOSSIER · ORGANISATION — DOC-${docCode}</div>
+        <div class="dstamp-big dstamp-mid">${esc((org.category || 'ORGANISATION').toUpperCase())}</div>
+      </div>
+      <h1 class="dossier-file-title">${esc(org.name)}</h1>
+      ${musicBarHtml(org.id, org.music)}
+      <div class="dossier-file-body">
+        <div class="dossier-file-main">
+          ${org.body && org.body.length ? renderRichBody(org.body) : `<p>${esc(org.desc)}</p>`}
+          <div class="dossier-file-end">FIN DE LA PRÉSENTATION</div>
+        </div>
+        <div class="dossier-file-side">
+          ${org.image ? `<div class="dossier-file-media"><img src="${org.image}" alt=""></div>` : `<div class="dossier-file-media dossier-file-noimg">IMAGE INDISPONIBLE</div>`}
+          ${org.logo ? `<div class="dossier-file-media"><img src="${org.logo}" alt=""></div>` : ''}
+        </div>
+      </div>
+    </div>
+    ${isLoggedIn() ? `<span class="btn btn-ghost halcyon-edit-toggle" onclick="toggleOrgDossierEditMode('${id}')">✎ Modifier</span>` : ''}
+    `}
+  `;
+}
+
 function renderHalcyonPage(): string {
   const f = FACTIONS.find(x=>x.id==='halcyon')!;
   return `
@@ -6578,7 +7010,9 @@ function render(): void {
   storyBookEntryId = null;
 
   document.querySelectorAll<HTMLElement>('.nav-link').forEach(el=>{
-    el.classList.toggle('active', el.dataset.route === route || (el.dataset.route==='halcyon' && route !== 'halcyon' && isHalcyonSection));
+    el.classList.toggle('active', el.dataset.route === route
+      || (el.dataset.route==='halcyon' && route !== 'halcyon' && isHalcyonSection)
+      || (el.dataset.route==='organisations' && route.startsWith('organisation-')));
   });
 
   if(route === 'home'){
@@ -6588,6 +7022,26 @@ function render(): void {
   } else if(route === 'novelance'){
     content.innerHTML = renderNovelance();
     initNovelanceMap();
+  } else if(route === 'organisations'){
+    content.innerHTML = renderOrganisationsList();
+  } else if(route.startsWith('organisation-')){
+    // Même logique de préservation du lecteur de musique que pour un
+    // dossier d'escadron (voir plus bas, route 'escadron-').
+    const orgId = route.replace('organisation-','');
+    const stablePlayerId = 'em-' + orgId;
+    const oldOrgPlayer = document.getElementById(stablePlayerId);
+    content.innerHTML = renderOrganisationDossier(orgId);
+    const newOrgPlayer = document.getElementById(stablePlayerId);
+    let orgPlayerPreserved = false;
+    if(oldOrgPlayer && newOrgPlayer && oldOrgPlayer.dataset.kind === newOrgPlayer.dataset.kind){
+      const oldSrc = oldOrgPlayer.querySelector('iframe,audio')?.getAttribute('src');
+      const newSrc = newOrgPlayer.querySelector('iframe,audio')?.getAttribute('src');
+      if(oldSrc && oldSrc === newSrc){
+        newOrgPlayer.replaceWith(oldOrgPlayer);
+        orgPlayerPreserved = true;
+      }
+    }
+    if(!orgPlayerPreserved) initEntryMusicPlayers();
   } else if(route === 'halcyon'){
     dockHalcyonLogoImmediate();
     content.innerHTML = renderHalcyonPage();

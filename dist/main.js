@@ -677,6 +677,12 @@ const IMAGE_BUDGET_BYTES = 700 * 1024;
 const SQUAD_IMAGE_BUDGET_BYTES = 900 * 1024;
 let sqdImageDraft = '';
 let sqdLogoDraft = '';
+const ORG_IMAGE_BUDGET_BYTES = 900 * 1024;
+let orgfImageDraft = '';
+let orgfLogoDraft = '';
+let orgdImageDraft = '';
+let orgdLogoDraft = '';
+let orgDossierEditId = null;
 
 function estimateImageBytes(dataUrl) {
     const commaIdx = dataUrl.indexOf(',');
@@ -689,7 +695,7 @@ function totalWfImagesBytes() {
     return wfImagesDraft.reduce((sum, img) => sum + estimateImageBytes(img.url), 0);
 }
 
-const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfDanger', 'sfBody', 'sfEditId'];
+const DRAFT_FIELD_IDS = ['wfCat', 'wfName', 'wfTagline', 'wfQuote', 'wfFactionSelect', 'wfFaction', 'wfOxiriGene', 'wfSpecialite', 'wfCapacite', 'wfMusic', 'wfBody', 'wfEditId', 'ceDate', 'ceTitle', 'ceBody', 'ceEditId', 'cnpLabel', 'cnpBody', 'hiDirigeant', 'hiDirigeantDesc', 'hsqName', 'hsqDesc', 'sqdName', 'sqdDesc', 'sqdTag', 'sqdCategory', 'sqdMusic', 'sqdBody', 'sfTitle', 'sfDanger', 'sfBody', 'sfEditId', 'orgfEditId', 'orgfName', 'orgfTag', 'orgfCategory', 'orgfDesc', 'orgdName', 'orgdTag', 'orgdCategory', 'orgdDesc', 'orgdMusic', 'orgdBody'];
 
 function captureDraftFormState() {
     const state = {};
@@ -843,6 +849,18 @@ function initFirestoreSync() {
         render();
         restoreDraftFormState(draft);
     }, (err) => console.error('Firestore (halcyonSquads) :', err));
+
+    db.collection('organisations').onSnapshot((snap) => {
+        const list = [];
+        snap.forEach((doc) => {
+            const data = doc.data();
+            list.push({ id: doc.id, name: data.name, desc: data.desc, tag: data.tag, category: data.category, image: data.image, logo: data.logo, music: data.music, body: data.body });
+        });
+        organisationDocsCache = list;
+        const draft = captureDraftFormState();
+        render();
+        restoreDraftFormState(draft);
+    }, (err) => console.error('Firestore (organisations) :', err));
 
     db.collection('halcyonSquadProjects').onSnapshot((snap) => {
         const list = [];
@@ -1104,6 +1122,45 @@ function renderEcriture() {
       <span class="btn btn-ghost" id="ceCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditChronoEvent()">Annuler</span>
     </div>
 
+    <h1 style="font-size:26px; margin:44px 0 6px;">Organisations</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Crée une nouvelle organisation, avec sa bannière et son logo — elle apparaît directement dans
+      le menu « Organisations », visible par tous les visiteurs du site. Halcyon est déjà là : tu
+      peux modifier sa carte (image, logo, tag, catégorie, résumé) depuis la liste ci-dessous, sans
+      toucher à sa page dédiée.
+    </p>
+    <div class="write-form" style="max-width:520px; margin-bottom:20px;">
+      <input type="hidden" id="orgfEditId" value="">
+      <div class="write-row"><label>Nom</label><input id="orgfName" type="text" placeholder="Ex : Groupe Astia"></div>
+      <div class="write-row"><label>Tag de la bannière</label><input id="orgfTag" type="text" placeholder="Ex : ASTIA — sinon le nom est utilisé"></div>
+      <div class="write-row"><label>Catégorie</label><input id="orgfCategory" type="text" placeholder="Ex : Mégacorporation"></div>
+      <div class="write-row"><label>Description courte (carte de la liste)</label><textarea id="orgfDesc" rows="3" placeholder="Ce qui s'affiche sur la carte, dans la liste des organisations…"></textarea></div>
+      <div class="write-row">
+        <label>Image de bannière (optionnel)</label>
+        <div class="write-images-list" id="orgfImagePreview">${orgFormImagePreviewHtml('image')}</div>
+        <input id="orgfImageFile" type="file" accept="image/*" onchange="handleOrgFormImage(this,'image')">
+      </div>
+      <div class="write-row">
+        <label>Logo / emblème (optionnel)</label>
+        <div class="write-images-list" id="orgfLogoPreview">${orgFormImagePreviewHtml('logo')}</div>
+        <input id="orgfLogoFile" type="file" accept="image/*" onchange="handleOrgFormImage(this,'logo')">
+      </div>
+      <div class="write-error" id="orgfError"></div>
+      <span class="btn btn-primary" id="orgfSubmitBtn" onclick="saveOrganisationForm()">Ajouter l'organisation</span>
+      <span class="btn btn-ghost" id="orgfCancelBtn" style="display:none; margin-left:8px;" onclick="cancelEditOrganisationForm()">Annuler</span>
+      <div class="write-hint">Le texte complet du dossier (paragraphes, musique) se modifie depuis la page de l'organisation une fois créée.</div>
+    </div>
+    <div class="account-list">
+      ${getAllOrganisations().map(o => `
+        <div class="account-list-row">
+          <span>${esc(o.name)}</span>
+          <span style="display:flex; gap:8px;">
+            <span class="btn btn-ghost" onclick="editOrganisationForm('${o.id}')">Modifier</span>
+            ${o.id !== 'halcyon' ? `<span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette organisation ?')){ deleteOrganisation('${o.id}'); }">Supprimer</span>` : ''}
+          </span>
+        </div>`).join('')}
+    </div>
+
     <h1 style="font-size:26px; margin:44px 0 6px;">Fichiers secrets</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
       Un fichier secret n'a pas de fiche publique : il n'apparaît que dans la fuite de données du
@@ -1221,6 +1278,80 @@ function refreshSquadDossierImagePreviews() {
     if (imgWrap) imgWrap.innerHTML = squadImagePreviewHtml('image');
     const logoWrap = document.getElementById('sqdLogoPreview');
     if (logoWrap) logoWrap.innerHTML = squadImagePreviewHtml('logo');
+}
+function handleOrgFormImage(input, field) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const other = field === 'image' ? orgfLogoDraft : orgfImageDraft;
+    const remaining = ORG_IMAGE_BUDGET_BYTES - (other ? estimateImageBytes(other) : 0);
+    if (file.size > remaining) {
+        const remainingKo = Math.max(0, Math.floor(remaining / 1024));
+        alert(`Image trop lourde : il reste environ ${remainingKo} Ko disponibles (bannière et logo partagent le même budget).`);
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        if (field === 'image') orgfImageDraft = reader.result;
+        else orgfLogoDraft = reader.result;
+        input.value = '';
+        refreshOrgFormImagePreviews();
+    };
+    reader.readAsDataURL(file);
+}
+function removeOrgFormImage(field) {
+    if (field === 'image') orgfImageDraft = '';
+    else orgfLogoDraft = '';
+    refreshOrgFormImagePreviews();
+}
+function orgFormImagePreviewHtml(field) {
+    const val = field === 'image' ? orgfImageDraft : orgfLogoDraft;
+    return val
+        ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeOrgFormImage('${field}')">Retirer</span></div>`
+        : '';
+}
+function refreshOrgFormImagePreviews() {
+    const imgWrap = document.getElementById('orgfImagePreview');
+    if (imgWrap) imgWrap.innerHTML = orgFormImagePreviewHtml('image');
+    const logoWrap = document.getElementById('orgfLogoPreview');
+    if (logoWrap) logoWrap.innerHTML = orgFormImagePreviewHtml('logo');
+}
+function handleOrgDossierImage(input, field) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const other = field === 'image' ? orgdLogoDraft : orgdImageDraft;
+    const remaining = ORG_IMAGE_BUDGET_BYTES - (other ? estimateImageBytes(other) : 0);
+    if (file.size > remaining) {
+        const remainingKo = Math.max(0, Math.floor(remaining / 1024));
+        alert(`Image trop lourde : il reste environ ${remainingKo} Ko disponibles (bannière et logo partagent le même budget).`);
+        input.value = '';
+        return;
+    }
+    const reader = new FileReader();
+    reader.onload = () => {
+        if (field === 'image') orgdImageDraft = reader.result;
+        else orgdLogoDraft = reader.result;
+        input.value = '';
+        refreshOrgDossierImagePreviews();
+    };
+    reader.readAsDataURL(file);
+}
+function removeOrgDossierImage(field) {
+    if (field === 'image') orgdImageDraft = '';
+    else orgdLogoDraft = '';
+    refreshOrgDossierImagePreviews();
+}
+function orgDossierImagePreviewHtml(field) {
+    const val = field === 'image' ? orgdImageDraft : orgdLogoDraft;
+    return val
+        ? `<div class="write-image-item"><img src="${val}" alt=""><span class="btn btn-ghost" onclick="removeOrgDossierImage('${field}')">Retirer</span></div>`
+        : '';
+}
+function refreshOrgDossierImagePreviews() {
+    const imgWrap = document.getElementById('orgdImagePreview');
+    if (imgWrap) imgWrap.innerHTML = orgDossierImagePreviewHtml('image');
+    const logoWrap = document.getElementById('orgdLogoPreview');
+    if (logoWrap) logoWrap.innerHTML = orgDossierImagePreviewHtml('logo');
 }
 function handleNewSquadProjectImage(squadId, input) {
     const file = input.files && input.files[0];
@@ -1725,6 +1856,109 @@ function toggleSquadDossierEditMode(id) {
     }
     render();
 }
+function saveOrganisationForm() {
+    const editIdEl = document.getElementById('orgfEditId');
+    const nameEl = document.getElementById('orgfName');
+    const tagEl = document.getElementById('orgfTag');
+    const categoryEl = document.getElementById('orgfCategory');
+    const descEl = document.getElementById('orgfDesc');
+    const errEl = document.getElementById('orgfError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const editId = editIdEl?.value || '';
+    const name = (nameEl?.value || '').trim();
+    if (!name) { if (errEl) errEl.textContent = "Donne un nom à l'organisation."; return; }
+    if (errEl) errEl.textContent = '';
+    const data = {
+        name,
+        tag: (tagEl?.value || '').trim(),
+        category: (categoryEl?.value || '').trim(),
+        desc: (descEl?.value || '').trim(),
+        image: orgfImageDraft,
+        logo: orgfLogoDraft,
+    };
+    const req = editId ? db.collection('organisations').doc(editId).set(data, { merge: true }) : db.collection('organisations').add(data);
+    req.then(() => { cancelEditOrganisationForm(); })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function editOrganisationForm(id) {
+    const org = getAllOrganisations().find(o => o.id === id);
+    if (!org) return;
+    document.getElementById('orgfEditId').value = id;
+    document.getElementById('orgfName').value = org.name;
+    document.getElementById('orgfTag').value = org.tag || '';
+    document.getElementById('orgfCategory').value = org.category || '';
+    document.getElementById('orgfDesc').value = org.desc;
+    orgfImageDraft = org.image || '';
+    orgfLogoDraft = org.logo || '';
+    refreshOrgFormImagePreviews();
+    const btn = document.getElementById('orgfSubmitBtn');
+    if (btn) btn.textContent = 'Enregistrer les modifications';
+    const cancelBtn = document.getElementById('orgfCancelBtn');
+    if (cancelBtn) cancelBtn.style.display = '';
+    document.querySelector('.write-form')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+function cancelEditOrganisationForm() {
+    const editIdEl = document.getElementById('orgfEditId');
+    const nameEl = document.getElementById('orgfName');
+    const tagEl = document.getElementById('orgfTag');
+    const categoryEl = document.getElementById('orgfCategory');
+    const descEl = document.getElementById('orgfDesc');
+    if (editIdEl) editIdEl.value = '';
+    if (nameEl) nameEl.value = '';
+    if (tagEl) tagEl.value = '';
+    if (categoryEl) categoryEl.value = '';
+    if (descEl) descEl.value = '';
+    orgfImageDraft = '';
+    orgfLogoDraft = '';
+    refreshOrgFormImagePreviews();
+    const btn = document.getElementById('orgfSubmitBtn');
+    if (btn) btn.textContent = "Ajouter l'organisation";
+    const cancelBtn = document.getElementById('orgfCancelBtn');
+    if (cancelBtn) cancelBtn.style.display = 'none';
+}
+function deleteOrganisation(id) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    db.collection('organisations').doc(id).delete();
+}
+function saveOrganisationDossier(id) {
+    const nameEl = document.getElementById('orgdName');
+    const descEl = document.getElementById('orgdDesc');
+    const tagEl = document.getElementById('orgdTag');
+    const categoryEl = document.getElementById('orgdCategory');
+    const musicEl = document.getElementById('orgdMusic');
+    const bodyEl = document.getElementById('orgdBody');
+    const errEl = document.getElementById('orgdError');
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const name = (nameEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    if (!name) { if (errEl) errEl.textContent = "Donne un nom à l'organisation."; return; }
+    if (errEl) errEl.textContent = '';
+    const body = parseWriteBody(bodyEl?.value || '');
+    db.collection('organisations').doc(id).set({
+        name, desc,
+        tag: (tagEl?.value || '').trim(),
+        category: (categoryEl?.value || '').trim(),
+        image: orgdImageDraft,
+        logo: orgdLogoDraft,
+        music: (musicEl?.value || '').trim(),
+        body,
+    }, { merge: true })
+        .then(() => { orgDossierEditId = null; render(); })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
+}
+function toggleOrgDossierEditMode(id) {
+    const wasEditingThis = orgDossierEditId === id;
+    orgDossierEditId = wasEditingThis ? null : id;
+    if (!wasEditingThis) {
+        const org = getAllOrganisations().find(o => o.id === id);
+        orgdImageDraft = org?.image || '';
+        orgdLogoDraft = org?.logo || '';
+    }
+    render();
+}
 function addSquadProject(squadId) {
     const titleEl = document.getElementById('spjTitle-' + squadId);
     const descEl = document.getElementById('spjDesc-' + squadId);
@@ -1918,6 +2152,38 @@ const SQUADS = [
     { id: 'oracle', name: 'Escadron Oracle', category: "Escadron d'élite",
         desc: "Une unité d'élite de Halcyon commandée par Sariah Frosleaf, vouée à l'annihilation d'Oxiri." },
 ];
+const ORGANISATIONS = [
+    { id: 'halcyon', name: 'Halcyon', tag: 'HALCYON', category: "Organisation Oxirienne",
+        desc: "L'organisation qui conçoit et augmente les hybrides de rang, les employant comme armes vivantes sur le champ de bataille." },
+];
+let organisationDocsCache = [];
+function getAllOrganisations() {
+    const overridesById = {};
+    const customList = [];
+    organisationDocsCache.forEach(doc => {
+        if (ORGANISATIONS.some(o => o.id === doc.id)) overridesById[doc.id] = doc;
+        else customList.push({
+            id: doc.id, name: doc.name || '', desc: doc.desc || '',
+            tag: doc.tag, category: doc.category, image: doc.image, logo: doc.logo, music: doc.music, body: doc.body,
+        });
+    });
+    const merged = ORGANISATIONS.map(o => {
+        const ov = overridesById[o.id];
+        if (!ov) return o;
+        return {
+            ...o,
+            name: ov.name || o.name,
+            desc: ov.desc || o.desc,
+            tag: ov.tag !== undefined ? ov.tag : o.tag,
+            category: ov.category !== undefined ? ov.category : o.category,
+            image: ov.image !== undefined ? ov.image : o.image,
+            logo: ov.logo !== undefined ? ov.logo : o.logo,
+            music: ov.music !== undefined ? ov.music : o.music,
+            body: ov.body !== undefined ? ov.body : o.body,
+        };
+    });
+    return [...merged, ...customList];
+}
 const HALCYON_HIERARCHY = [
     { id: 'dirigeant', label: 'Dirigeant',
         desc: ["Il y a tout d'abord le dirigeant, celui à la tête de la société. Il est celui qui dirige les opérations et dont la voix porte sur tout le monde. Les théories sont nombreuses sur la puissance et le réel but de cette personne, mais pour le moment il ne fait « qu'avancer le monde vers un avenir meilleur » selon ses dires."],
@@ -3935,6 +4201,97 @@ function renderSquads() {
     </div>` : ''}
   `;
 }
+function renderOrganisationsList() {
+    const orgs = getAllOrganisations();
+    return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Organisations</div>
+    <h1 style="font-size:26px; margin-bottom:6px;">Organisations</h1>
+    <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
+      Les grandes organisations qui façonnent le monde.
+      ${isLoggedIn() ? `Une nouvelle organisation se crée depuis l'<span onclick="navigate('ecriture')" style="cursor:pointer; text-decoration:underline;">espace d'écriture</span>.` : ''}
+    </p>
+    <div class="squad-grid">
+      ${orgs.map(o => {
+        const tag = (o.tag || o.name).toUpperCase();
+        const targetRoute = o.id === 'halcyon' ? 'halcyon' : 'organisation-' + o.id;
+        return `
+        <div class="squad-dossier-card" onclick="navigate('${targetRoute}')">
+          <div class="squad-dossier-banner"${o.image ? ` style="background-image:url('${o.image}')"` : ''}>
+            <span class="squad-dossier-tag">${esc(tag)}</span>
+          </div>
+          <div class="squad-dossier-card-body">
+            <div class="squad-dossier-card-head">
+              <div>
+                <div class="squad-dossier-card-name">${esc(o.name)}</div>
+                ${o.category ? `<div class="squad-dossier-card-category">${esc(o.category.toUpperCase())}</div>` : ''}
+              </div>
+              <div class="squad-dossier-card-logo">${o.logo ? `<img src="${o.logo}" alt="">` : esc(o.name.charAt(0))}</div>
+            </div>
+            <p class="squad-dossier-card-desc">${esc(o.desc)}</p>
+            <span class="squad-dossier-card-link">Consulter le dossier →</span>
+          </div>
+        </div>`;
+    }).join('')}
+    </div>
+  `;
+}
+function renderOrganisationDossier(id) {
+    const orgs = getAllOrganisations();
+    const idx = orgs.findIndex(o => o.id === id);
+    const org = orgs[idx];
+    if (!org) return renderNotFound();
+    const docCode = String(idx + 1).padStart(3, '0');
+    const editing = orgDossierEditId === id;
+    return `
+    <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / <span onclick="navigate('organisations')" style="cursor:pointer">Organisations</span> / ${esc(org.name)}</div>
+    ${editing ? `
+    <div class="write-form halcyon-edit-panel" style="max-width:640px;">
+      <div class="write-row"><label>Nom</label><input id="orgdName" type="text" value="${escAttr(org.name)}"></div>
+      <div class="write-row"><label>Résumé (carte de la liste)</label><textarea id="orgdDesc" rows="3">${esc(org.desc)}</textarea></div>
+      <div class="write-row"><label>Tag de la bannière</label><input id="orgdTag" type="text" value="${escAttr(org.tag || '')}" placeholder="Ex : ASTIA — sinon le nom est utilisé"></div>
+      <div class="write-row"><label>Catégorie</label><input id="orgdCategory" type="text" value="${escAttr(org.category || '')}" placeholder="Ex : Mégacorporation"></div>
+      <div class="write-row">
+        <label>Image de bannière (optionnel)</label>
+        <div class="write-images-list" id="orgdImagePreview">${orgDossierImagePreviewHtml('image')}</div>
+        <input id="orgdImageFile" type="file" accept="image/*" onchange="handleOrgDossierImage(this,'image')">
+      </div>
+      <div class="write-row">
+        <label>Logo / emblème (optionnel)</label>
+        <div class="write-images-list" id="orgdLogoPreview">${orgDossierImagePreviewHtml('logo')}</div>
+        <input id="orgdLogoFile" type="file" accept="image/*" onchange="handleOrgDossierImage(this,'logo')">
+      </div>
+      <div class="write-row"><label>Musique de fond (URL)</label><input id="orgdMusic" type="url" value="${escAttr(org.music || '')}" placeholder="Lien SoundCloud, fichier audio…"></div>
+      <div class="write-row">
+        <label>Texte du dossier (un paragraphe par bloc de lignes)</label>
+        <textarea id="orgdBody" rows="8">${esc((org.body && org.body.length ? org.body : [org.desc]).join('\n\n'))}</textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras, <code>[code]texte]</code> pour une archive verrouillée.</div>
+      </div>
+      <div class="write-error" id="orgdError"></div>
+      <span class="btn btn-primary" onclick="saveOrganisationDossier('${id}')">Enregistrer</span>
+      <span class="btn btn-ghost" onclick="toggleOrgDossierEditMode('${id}')">Annuler</span>
+    </div>` : `
+    <div class="dossier-file">
+      <div class="dossier-file-top">
+        <div class="dossier-file-num">DOSSIER · ORGANISATION — DOC-${docCode}</div>
+        <div class="dstamp-big dstamp-mid">${esc((org.category || 'ORGANISATION').toUpperCase())}</div>
+      </div>
+      <h1 class="dossier-file-title">${esc(org.name)}</h1>
+      ${musicBarHtml(org.id, org.music)}
+      <div class="dossier-file-body">
+        <div class="dossier-file-main">
+          ${org.body && org.body.length ? renderRichBody(org.body) : `<p>${esc(org.desc)}</p>`}
+          <div class="dossier-file-end">FIN DE LA PRÉSENTATION</div>
+        </div>
+        <div class="dossier-file-side">
+          ${org.image ? `<div class="dossier-file-media"><img src="${org.image}" alt=""></div>` : `<div class="dossier-file-media dossier-file-noimg">IMAGE INDISPONIBLE</div>`}
+          ${org.logo ? `<div class="dossier-file-media"><img src="${org.logo}" alt=""></div>` : ''}
+        </div>
+      </div>
+    </div>
+    ${isLoggedIn() ? `<span class="btn btn-ghost halcyon-edit-toggle" onclick="toggleOrgDossierEditMode('${id}')">✎ Modifier</span>` : ''}
+    `}
+  `;
+}
 function renderHalcyonPage() {
     const f = FACTIONS.find(x => x.id === 'halcyon');
     return `
@@ -5915,7 +6272,9 @@ function render() {
         storyOverlay.remove();
     storyBookEntryId = null;
     document.querySelectorAll('.nav-link').forEach(el => {
-        el.classList.toggle('active', el.dataset.route === route || (el.dataset.route === 'halcyon' && route !== 'halcyon' && isHalcyonSection));
+        el.classList.toggle('active', el.dataset.route === route
+            || (el.dataset.route === 'halcyon' && route !== 'halcyon' && isHalcyonSection)
+            || (el.dataset.route === 'organisations' && route.startsWith('organisation-')));
     });
     if (route === 'home') {
         content.innerHTML = renderHome();
@@ -5926,6 +6285,26 @@ function render() {
     else if (route === 'novelance') {
         content.innerHTML = renderNovelance();
         initNovelanceMap();
+    }
+    else if (route === 'organisations') {
+        content.innerHTML = renderOrganisationsList();
+    }
+    else if (route.startsWith('organisation-')) {
+        const orgId = route.replace('organisation-', '');
+        const stablePlayerId = 'em-' + orgId;
+        const oldOrgPlayer = document.getElementById(stablePlayerId);
+        content.innerHTML = renderOrganisationDossier(orgId);
+        const newOrgPlayer = document.getElementById(stablePlayerId);
+        let orgPlayerPreserved = false;
+        if (oldOrgPlayer && newOrgPlayer && oldOrgPlayer.dataset.kind === newOrgPlayer.dataset.kind) {
+            const oldSrc = oldOrgPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            const newSrc = newOrgPlayer.querySelector('iframe,audio')?.getAttribute('src');
+            if (oldSrc && oldSrc === newSrc) {
+                newOrgPlayer.replaceWith(oldOrgPlayer);
+                orgPlayerPreserved = true;
+            }
+        }
+        if (!orgPlayerPreserved) initEntryMusicPlayers();
     }
     else if (route === 'halcyon') {
         dockHalcyonLogoImmediate();
