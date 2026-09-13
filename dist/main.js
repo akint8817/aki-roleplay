@@ -679,6 +679,7 @@ const IMAGE_BUDGET_BYTES = 700 * 1024;
 const SQUAD_IMAGE_BUDGET_BYTES = 900 * 1024;
 let sqdImageDraft = '';
 let sqdLogoDraft = '';
+let squadProjectEditId = null;
 const ORG_IMAGE_BUDGET_BYTES = 900 * 1024;
 let orgfImageDraft = '';
 let orgfLogoDraft = '';
@@ -2294,6 +2295,28 @@ function deleteSquadProject(id) {
     const db = getFirestoreDb();
     if (!db) return;
     db.collection('halcyonSquadProjects').doc(id).delete();
+}
+function toggleSquadProjectEditMode(id) {
+    squadProjectEditId = squadProjectEditId === id ? null : id;
+    render();
+}
+function saveSquadProject(id) {
+    const titleEl = document.getElementById('spjEditTitle-' + id);
+    const descEl = document.getElementById('spjEditDesc-' + id);
+    const typeEl = document.getElementById('spjEditType-' + id);
+    const noteEl = document.getElementById('spjEditNote-' + id);
+    const errEl = document.getElementById('spjEditError-' + id);
+    const db = getFirestoreDb();
+    if (!db) { if (errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+    const title = (titleEl?.value || '').trim();
+    const desc = (descEl?.value || '').trim();
+    const type = typeEl?.value || 'projet';
+    const note = (noteEl?.value || '').trim();
+    if (!title) { if (errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
+    if (errEl) errEl.textContent = '';
+    db.collection('halcyonSquadProjects').doc(id).update({ title, desc, type, note: note || null })
+        .then(() => { squadProjectEditId = null; render(); })
+        .catch((err) => { if (errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 function handleSecretFileImage(input) {
     const file = input.files && input.files[0];
@@ -4338,7 +4361,28 @@ function renderSquadRoster(squad) {
       ${customEntries.length ? `<div class="halcyon-inline-list">${customEntries.map(c => `<span class="org-tier-chip">${esc(c.entry.name)} <span class="org-tier-chip-remove" onclick="deleteHalcyonSquadMember('${c.link.id}')">✕</span></span>`).join('')}</div>` : ''}` : ''}
     </div>`;
 }
+function renderSquadProjectEditForm(p) {
+    const type = p.type || 'projet';
+    return `
+    <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+      <div class="write-row"><label>Titre</label><input id="spjEditTitle-${p.id}" type="text" value="${escAttr(p.title)}"></div>
+      <div class="write-row"><label>Description</label><textarea id="spjEditDesc-${p.id}" rows="3">${esc(p.desc)}</textarea></div>
+      <div class="write-row">
+        <label>Type</label>
+        <select id="spjEditType-${p.id}">
+          <option value="projet" ${type==='projet' ? 'selected' : ''}>Projet</option>
+          <option value="branche" ${type==='branche' ? 'selected' : ''}>Branche</option>
+          <option value="mission" ${type==='mission' ? 'selected' : ''}>Mission</option>
+        </select>
+      </div>
+      <div class="write-row"><label>Note annotée (optionnel, uniquement pour « Branche »)</label><textarea id="spjEditNote-${p.id}" rows="2">${esc(p.note||'')}</textarea></div>
+      <div class="write-error" id="spjEditError-${p.id}"></div>
+      <span class="btn btn-primary" onclick="saveSquadProject('${p.id}')">Enregistrer</span>
+      <span class="btn btn-ghost" onclick="toggleSquadProjectEditMode('${p.id}')">Annuler</span>
+    </div>`;
+}
 function renderProjectDocCard(p, squad, docCode, pCode, editing) {
+    if (editing && squadProjectEditId === p.id) return renderSquadProjectEditForm(p);
     return `
     <div class="project-doc-card">
       ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
@@ -4358,6 +4402,7 @@ function renderProjectDocCard(p, squad, docCode, pCode, editing) {
         <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
         <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
         ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+        <span class="btn btn-ghost btn-sm" onclick="toggleSquadProjectEditMode('${p.id}')">✎ Modifier le texte</span>
       </div>` : ''}
       <div class="project-doc-fields">
         <div><b>Projet</b>${esc(p.title)}</div>
@@ -4374,6 +4419,7 @@ function renderProjectDocCard(p, squad, docCode, pCode, editing) {
     </div>`;
 }
 function renderBranchDossierCard(p, squad, docCode, pCode, editing) {
+    if (editing && squadProjectEditId === p.id) return renderSquadProjectEditForm(p);
     return `
     <div class="branch-dossier-card">
       ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
@@ -4400,6 +4446,7 @@ function renderBranchDossierCard(p, squad, docCode, pCode, editing) {
         <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
         <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
         ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+        <span class="btn btn-ghost btn-sm" onclick="toggleSquadProjectEditMode('${p.id}')">✎ Modifier le texte</span>
       </div>` : ''}
       <div class="branch-dossier-torn-divider"></div>
       <div class="branch-dossier-note">

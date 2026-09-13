@@ -959,6 +959,11 @@ const IMAGE_BUDGET_BYTES = 700 * 1024;
 const SQUAD_IMAGE_BUDGET_BYTES = 900 * 1024;
 let sqdImageDraft = '';
 let sqdLogoDraft = '';
+// Id du projet/branche/mission actuellement en édition de texte (titre,
+// description, type, note) — voir toggleSquadProjectEditMode et
+// renderSquadProjectEditForm. Distinct de l'édition d'image, qui reste
+// possible même sans ouvrir ce mode (voir handleSquadProjectImage).
+let squadProjectEditId: string | null = null;
 
 // Bannière + logo d'une organisation — même principe que pour un escadron,
 // mais deux jeux de brouillons séparés : un pour le formulaire de
@@ -2800,6 +2805,33 @@ function deleteSquadProject(id: string): void {
   const db = getFirestoreDb();
   if(!db) return;
   db.collection('halcyonSquadProjects').doc(id).delete();
+}
+
+function toggleSquadProjectEditMode(id: string): void {
+  squadProjectEditId = squadProjectEditId === id ? null : id;
+  render();
+}
+
+// Sauvegarde le texte (titre, description, type, note) d'un projet/branche/
+// mission déjà créé — l'image se modifie séparément (voir
+// handleSquadProjectImage), sans passer par ce mode d'édition.
+function saveSquadProject(id: string): void {
+  const titleEl = document.getElementById('spjEditTitle-' + id) as HTMLInputElement | null;
+  const descEl = document.getElementById('spjEditDesc-' + id) as HTMLTextAreaElement | null;
+  const typeEl = document.getElementById('spjEditType-' + id) as HTMLSelectElement | null;
+  const noteEl = document.getElementById('spjEditNote-' + id) as HTMLTextAreaElement | null;
+  const errEl = document.getElementById('spjEditError-' + id);
+  const db = getFirestoreDb();
+  if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
+  const title = (titleEl?.value || '').trim();
+  const desc = (descEl?.value || '').trim();
+  const type = typeEl?.value || 'projet';
+  const note = (noteEl?.value || '').trim();
+  if(!title){ if(errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
+  if(errEl) errEl.textContent = '';
+  db.collection('halcyonSquadProjects').doc(id).update({ title, desc, type, note: note || null })
+    .then(()=>{ squadProjectEditId = null; render(); })
+    .catch((err: any)=>{ if(errEl) errEl.textContent = 'Erreur : ' + err.message; });
 }
 
 // Upload de l'image d'un fichier secret en cours d'écriture — même principe
@@ -5098,10 +5130,36 @@ function renderSquadRoster(squad: Squad): string {
     </div>`;
 }
 
+// Formulaire d'édition du texte (titre, description, type, note) d'un
+// projet/branche/mission déjà créé — remplace entièrement la carte le temps
+// de l'édition (voir squadProjectEditId), quel que soit son type actuel ;
+// changer le type ici change aussi son affichage une fois enregistré.
+function renderSquadProjectEditForm(p: SquadProject): string {
+  const type = p.type || 'projet';
+  return `
+    <div class="write-form halcyon-edit-panel" style="max-width:480px;">
+      <div class="write-row"><label>Titre</label><input id="spjEditTitle-${p.id}" type="text" value="${escAttr(p.title)}"></div>
+      <div class="write-row"><label>Description</label><textarea id="spjEditDesc-${p.id}" rows="3">${esc(p.desc)}</textarea></div>
+      <div class="write-row">
+        <label>Type</label>
+        <select id="spjEditType-${p.id}">
+          <option value="projet" ${type==='projet' ? 'selected' : ''}>Projet</option>
+          <option value="branche" ${type==='branche' ? 'selected' : ''}>Branche</option>
+          <option value="mission" ${type==='mission' ? 'selected' : ''}>Mission</option>
+        </select>
+      </div>
+      <div class="write-row"><label>Note annotée (optionnel, uniquement pour « Branche »)</label><textarea id="spjEditNote-${p.id}" rows="2">${esc(p.note||'')}</textarea></div>
+      <div class="write-error" id="spjEditError-${p.id}"></div>
+      <span class="btn btn-primary" onclick="saveSquadProject('${p.id}')">Enregistrer</span>
+      <span class="btn btn-ghost" onclick="toggleSquadProjectEditMode('${p.id}')">Annuler</span>
+    </div>`;
+}
+
 // Carte "projet" par défaut, façon fiche d'équipement — utilisée pour les
 // types "projet" et "mission" (voir SquadProject.type), qui partagent le
 // même affichage pour l'instant.
 function renderProjectDocCard(p: SquadProject, squad: Squad, docCode: string, pCode: string, editing: boolean): string {
+  if(editing && squadProjectEditId === p.id) return renderSquadProjectEditForm(p);
   return `
     <div class="project-doc-card">
       ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
@@ -5121,6 +5179,7 @@ function renderProjectDocCard(p: SquadProject, squad: Squad, docCode: string, pC
         <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
         <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
         ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+        <span class="btn btn-ghost btn-sm" onclick="toggleSquadProjectEditMode('${p.id}')">✎ Modifier le texte</span>
       </div>` : ''}
       <div class="project-doc-fields">
         <div><b>Projet</b>${esc(p.title)}</div>
@@ -5142,6 +5201,7 @@ function renderProjectDocCard(p: SquadProject, squad: Squad, docCode: string, pC
 // manuscrite en marge (voir SquadProject.type et le champ "note"),
 // inspirée d'un rapport d'investigation façon fiche de containment.
 function renderBranchDossierCard(p: SquadProject, squad: Squad, docCode: string, pCode: string, editing: boolean): string {
+  if(editing && squadProjectEditId === p.id) return renderSquadProjectEditForm(p);
   return `
     <div class="branch-dossier-card">
       ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
@@ -5168,6 +5228,7 @@ function renderBranchDossierCard(p: SquadProject, squad: Squad, docCode: string,
         <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
         <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
         ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+        <span class="btn btn-ghost btn-sm" onclick="toggleSquadProjectEditMode('${p.id}')">✎ Modifier le texte</span>
       </div>` : ''}
       <div class="branch-dossier-torn-divider"></div>
       <div class="branch-dossier-note">
