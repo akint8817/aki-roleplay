@@ -3554,7 +3554,7 @@ function renderHome(): string {
     <div class="hero">
       <svg class="hero-sigil" viewBox="0 0 24 24" fill="none" stroke="#c4c9d1" stroke-width="1"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="3.2"/><line x1="12" y1="1" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="1" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="23" y2="12"/></svg>
       <div class="hero-eyebrow">Codex non-officiel</div>
-      <h1>MEMORIES<br>OF PAST</h1>
+      <h1>OXIRI<br>LE PRIX DE L'AUBE</h1>
       <div class="hero-divider"></div>
       <p>Entre les ruines d'un âge oublié et les flèches de verre d'un présent technologique, un même monde continue de se souvenir. Explore ses régions, ses factions et ceux qui portent encore le poids du passé.</p>
       <div class="hero-actions">
@@ -7524,12 +7524,30 @@ function runIntro(): void {
     octx.fillStyle = '#fff';
     octx.textAlign = 'left';
     octx.textBaseline = 'middle';
-    octx.font = `300 ${isMobile ? 44 : 90}px 'Cormorant Garamond', serif`;
-    const introText = 'MEMORIES OF PAST';
+    let introFontSize = isMobile ? 44 : 90;
+    octx.font = `300 ${introFontSize}px 'Cormorant Garamond', serif`;
+    const introText = "OXIRI — LE PRIX DE L'AUBE";
     const introLetterSpacing = isMobile ? 5 : 11;
-    let introWidth = 0;
-    for(const ch of introText) introWidth += octx.measureText(ch).width + introLetterSpacing;
-    introWidth -= introLetterSpacing;
+    const measureIntroWidth = () => {
+      let w = 0;
+      for(const ch of introText) w += octx.measureText(ch).width + introLetterSpacing;
+      return w - introLetterSpacing;
+    };
+    let introWidth = measureIntroWidth();
+    // Le titre n'a pas forcément la même longueur d'un thème à l'autre :
+    // on réduit la taille de police si le texte déborderait du canevas
+    // (utile surtout sur mobile, où l'espace disponible est limité).
+    // L'espacement des lettres reste fixe en pixels (il ne raccourcit pas
+    // avec la police), donc une seule réduction proportionnelle ne suffit
+    // pas toujours — on boucle jusqu'à convergence.
+    const introMaxWidth = off.width * 0.92;
+    let introFitTries = 0;
+    while(introWidth > introMaxWidth && introFontSize > 16 && introFitTries < 6){
+      introFontSize = Math.max(16, Math.floor(introFontSize * (introMaxWidth / introWidth)));
+      octx.font = `300 ${introFontSize}px 'Cormorant Garamond', serif`;
+      introWidth = measureIntroWidth();
+      introFitTries++;
+    }
     let introX = off.width/2 - introWidth/2;
     const introY = off.height/2;
     for(const ch of introText){
