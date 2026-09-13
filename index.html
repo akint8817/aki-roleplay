@@ -1616,6 +1616,12 @@ h1,h2,h3,h4{
 }
 .org-tier-label{ font-family:'Cinzel', serif; font-size:16px; color:#f0ebdc; margin-bottom:6px; }
 .org-tier-desc{ font-size:12.5px; color: var(--text-dim); line-height:1.7; margin-bottom:10px; max-width:74ch; }
+.org-tier-desc p{ margin:0 0 10px; }
+.org-tier-desc p:last-child{ margin-bottom:0; }
+.org-tier-desc h3{ font-size:13px; color:#f0ebdc; text-transform:uppercase; letter-spacing:0.04em; margin:0 0 6px; }
+.org-tier-desc .dossier-list-block{ margin:0 0 10px; }
+.org-tier-desc .dossier-list-block li{ font-size:12.5px; padding:4px 0 4px 16px; }
+.org-tier-desc .dossier-quote{ font-size:13px; margin:6px 0; }
 .org-tier-members{ display:flex; flex-wrap:wrap; gap:8px; }
 .org-tier-chip{
   font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:0.04em;
@@ -3398,6 +3404,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=48"></script>
+<script src="dist/main.js?v=49"></script>
 </body>
 </html>

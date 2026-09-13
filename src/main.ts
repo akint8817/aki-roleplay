@@ -868,7 +868,7 @@ let halcyonSquadMembersCache: HalcyonRosterLink[] = [];
 // id est un nouveau palier créé depuis le site — même principe que
 // getAllSquads. "position" sert de clé de tri ; deux paliers qui partagent la
 // même position s'affichent côte à côte (une "branche") sur la même ligne.
-let halcyonTierDocsCache: (Partial<{ label: string; desc: string; position: number }> & { id: string })[] = [];
+let halcyonTierDocsCache: (Partial<{ label: string; desc: string[]; position: number }> & { id: string })[] = [];
 // Palier actuellement en édition de texte (voir toggleOrgTierEditMode).
 let orgTierEditId: string | null = null;
 // Documents Firestore "halcyonSquads" bruts : un id correspondant à un
@@ -1069,7 +1069,7 @@ function initFirestoreSync(): void {
     const list: (Partial<{ label: string; desc: string; position: number }> & { id: string })[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, label: data.label, desc: data.desc, position: typeof data.position === 'number' ? data.position : undefined });
+      list.push({ id: doc.id, label: data.label, desc: Array.isArray(data.desc) ? data.desc : (data.desc ? [data.desc] : undefined), position: typeof data.position === 'number' ? data.position : undefined });
     });
     halcyonTierDocsCache = list;
     const draft = captureDraftFormState();
@@ -1926,7 +1926,7 @@ function addOrgTier(besideId?: string): void {
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const label = (labelEl?.value || '').trim();
-  const desc = (descEl?.value || '').trim();
+  const desc = parseWriteBody(descEl?.value || '');
   if(!label){ if(errEl) errEl.textContent = 'Donne un nom au palier.'; return; }
   if(errEl) errEl.textContent = '';
   const tiers = getAllHierarchyTiers();
@@ -1957,7 +1957,7 @@ function saveOrgTier(id: string): void {
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const label = (labelEl?.value || '').trim();
-  const desc = (descEl?.value || '').trim();
+  const desc = parseWriteBody(descEl?.value || '');
   if(!label){ if(errEl) errEl.textContent = 'Donne un nom au palier.'; return; }
   if(errEl) errEl.textContent = '';
   db.collection('halcyonTierOverrides').doc(id).set({ label, desc }, { merge: true })
@@ -2331,28 +2331,28 @@ const SQUADS: Squad[] = [
 interface HierarchyTier {
   id: string;
   label: string;
-  desc: string;
+  desc: string[];
   memberIds: string[];
 }
 
 const HALCYON_HIERARCHY: HierarchyTier[] = [
   { id:'dirigeant', label:'Dirigeant',
-    desc:"Il y a tout d'abord le dirigeant, celui à la tête de la société. Il est celui qui dirige les opérations et dont la voix porte sur tout le monde. Les théories sont nombreuses sur la puissance et le réel but de cette personne, mais pour le moment il ne fait « qu'avancer le monde vers un avenir meilleur » selon ses dires.",
+    desc:["Il y a tout d'abord le dirigeant, celui à la tête de la société. Il est celui qui dirige les opérations et dont la voix porte sur tout le monde. Les théories sont nombreuses sur la puissance et le réel but de cette personne, mais pour le moment il ne fait « qu'avancer le monde vers un avenir meilleur » selon ses dires."],
     memberIds:[] },
   { id:'bras-droit', label:'Bras droit',
-    desc:"Il est le second du dirigeant : il peut prendre des décisions importantes et diriger les opérations en son absence, et reste le premier fil conducteur entre la société et celui qui en est à sa tête. Ce rôle exige un lien de confiance très fort avec le dirigeant — même s'il est arrivé d'y voir des personnes… spéciales.",
+    desc:["Il est le second du dirigeant : il peut prendre des décisions importantes et diriger les opérations en son absence, et reste le premier fil conducteur entre la société et celui qui en est à sa tête. Ce rôle exige un lien de confiance très fort avec le dirigeant — même s'il est arrivé d'y voir des personnes… spéciales."],
     memberIds:[] },
   { id:'rang-s', label:'Hybrides de rang S',
-    desc:"Généralement les plus puissants, ceux et celles qui ont été couronnés de succès lors de leurs différents combats. Ils sont généralement soit capitaines d'escadrons, soit bras droit de ceux-ci. Il y a très peu d'hybrides de rang S, les personnes capables d'atteindre ce stade étant rares.",
+    desc:["Généralement les plus puissants, ceux et celles qui ont été couronnés de succès lors de leurs différents combats. Ils sont généralement soit capitaines d'escadrons, soit bras droit de ceux-ci. Il y a très peu d'hybrides de rang S, les personnes capables d'atteindre ce stade étant rares."],
     memberIds:['sariah-frosleaf'] },
   { id:'rang-a', label:'Hybrides de rang A',
-    desc:"Ce sont les plus nombreux : généralement ceux et celles qui ont déjà pas mal d'expérience, qui connaissent bien la dure vie sur le terrain et ce que c'est que de se battre contre Oxiri. Tous ont fini leur processus de formation et se battent pour protéger leur monde… (enfin, normalement).",
+    desc:["Ce sont les plus nombreux : généralement ceux et celles qui ont déjà pas mal d'expérience, qui connaissent bien la dure vie sur le terrain et ce que c'est que de se battre contre Oxiri. Tous ont fini leur processus de formation et se battent pour protéger leur monde… (enfin, normalement)."],
     memberIds:['alice-alfreya','thorne-adell'] },
   { id:'rang-b', label:'Hybrides de rang B',
-    desc:"Ce sont celles et ceux qui commencent ou sont en cours de formation ; ils découvrent ce qu'ils vont devoir vivre pour leur futur. Beaucoup abandonnent très tôt et peu restent. C'est un peu la phase de sélection, où certains sont gardés à l'œil car possédant des aptitudes différentes qui leur permettraient d'atteindre les plus hauts sommets.",
+    desc:["Ce sont celles et ceux qui commencent ou sont en cours de formation ; ils découvrent ce qu'ils vont devoir vivre pour leur futur. Beaucoup abandonnent très tôt et peu restent. C'est un peu la phase de sélection, où certains sont gardés à l'œil car possédant des aptitudes différentes qui leur permettraient d'atteindre les plus hauts sommets."],
     memberIds:['nyx-sorel','vesper-kaine'] },
   { id:'stagiaire', label:'Stagiaire',
-    desc:"Ooofff… vous êtes des stagiaires, ici pour observer et apprendre de l'organisation. N'oublie pas de faire signer ta convention !",
+    desc:["Ooofff… vous êtes des stagiaires, ici pour observer et apprendre de l'organisation. N'oublie pas de faire signer ta convention !"],
     memberIds:[] },
 ];
 
@@ -2361,17 +2361,18 @@ const HALCYON_HIERARCHY: HierarchyTier[] = [
 // un palier de HALCYON_HIERARCHY surcharge son texte et/ou sa position, un
 // autre id est un tout nouveau palier. Le tri par "position" détermine
 // l'ordre des lignes de l'organigramme ; plusieurs paliers qui partagent la
-// même position s'affichent côte à côte, comme des branches.
+// même position s'affichent côte à côte, comme des branches. "desc" suit les
+// mêmes règles de mise en forme que le reste du site (voir renderRichBody).
 function getAllHierarchyTiers(): (HierarchyTier & { position: number })[] {
   const baseIds = new Set(HALCYON_HIERARCHY.map(t => t.id));
   const overrides = new Map(halcyonTierDocsCache.map(d => [d.id, d]));
   const merged = HALCYON_HIERARCHY.map((t, i) => {
     const o = overrides.get(t.id);
     const basePosition = i * 10;
-    return o ? { ...t, label: o.label ?? t.label, desc: o.desc ?? t.desc, position: o.position ?? basePosition } : { ...t, position: basePosition };
+    return o ? { ...t, label: o.label ?? t.label, desc: (o.desc && o.desc.length ? o.desc : t.desc), position: o.position ?? basePosition } : { ...t, position: basePosition };
   });
   const customs = halcyonTierDocsCache.filter(d => !baseIds.has(d.id)).map(d => ({
-    id: d.id, label: d.label || 'Nouveau palier', desc: d.desc || '', memberIds: [] as string[],
+    id: d.id, label: d.label || 'Nouveau palier', desc: (d.desc && d.desc.length ? d.desc : []), memberIds: [] as string[],
     position: typeof d.position === 'number' ? d.position : 9999,
   }));
   return [...merged, ...customs].sort((a, b) => a.position - b.position);
@@ -4236,7 +4237,11 @@ function orgTierNodeHtml(tier: HierarchyTier & { position: number }): string {
     return `
       <div class="org-chart-node">
         <div class="write-row"><label>Nom du palier</label><input id="otEditLabel-${tier.id}" type="text" value="${escAttr(tier.label)}"></div>
-        <div class="write-row"><label>Description</label><textarea id="otEditDesc-${tier.id}" rows="4">${esc(tier.desc)}</textarea></div>
+        <div class="write-row">
+          <label>Description</label>
+          <textarea id="otEditDesc-${tier.id}" rows="4">${esc(tier.desc.map(decodeBodyLineForEdit).join('\n\n'))}</textarea>
+          <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras.</div>
+        </div>
         <div class="write-error" id="otEditError-${tier.id}"></div>
         <div style="display:flex; gap:8px;">
           <span class="btn btn-primary btn-sm" onclick="saveOrgTier('${tier.id}')">Enregistrer</span>
@@ -4250,7 +4255,7 @@ function orgTierNodeHtml(tier: HierarchyTier & { position: number }): string {
   return `
     <div class="org-chart-node">
       <div class="org-tier-label">${esc(tier.label)}</div>
-      <p class="org-tier-desc">${esc(tier.desc)}</p>
+      <div class="org-tier-desc">${renderRichBody(tier.desc)}</div>
       <div class="org-tier-members">
         ${hasAny
           ? [
@@ -4302,7 +4307,11 @@ function renderOrgTree(): string {
     ${halcyonEditMode ? `
     <div class="write-form halcyon-edit-panel" style="max-width:480px; margin-top:20px;">
       <div class="write-row"><label>Nom du nouveau palier</label><input id="otLabel" type="text" placeholder="Ex : Conseil des Anciens"></div>
-      <div class="write-row"><label>Description</label><textarea id="otDesc" rows="3" placeholder="Description du palier…"></textarea></div>
+      <div class="write-row">
+        <label>Description</label>
+        <textarea id="otDesc" rows="3" placeholder="Description du palier…"></textarea>
+        <div class="write-hint">Mêmes règles que l'espace d'écriture : <code># </code> pour un titre, <code>- </code> pour une liste, <code>&gt; </code> pour une citation, <code>**mot**</code> pour du gras.</div>
+      </div>
       <div class="write-error" id="otError"></div>
       <div style="display:flex; gap:8px; flex-wrap:wrap;">
         <span class="btn btn-primary btn-sm" onclick="addOrgTier('top')">+ Tout en haut</span>
