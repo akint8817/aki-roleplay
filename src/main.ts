@@ -3152,7 +3152,13 @@ function rosterBubbleHtml(rosterId: string, e: Entry): string {
 // faction en surimpression, l'image s'agrandit légèrement au survol. Utilisée
 // uniquement pour la page Personnages (renderPersonnagesRoster) — les
 // carrousels 3D (rosterCard3dHtml) restent inchangés pour les escadrons.
-function champCardHtml(e: Entry, factionName: string): string {
+function factionNameForEntry(e: Entry): string {
+  const f = FACTIONS.find(x => x.id === e.faction);
+  return f ? f.name : (e.factionLabel || '');
+}
+
+function champCardHtml(e: Entry): string {
+  const factionName = factionNameForEntry(e);
   return `
     <div class="champ-card" onclick="navigate('entry-${e.id}')">
       <div class="champ-card-img">
@@ -3162,40 +3168,25 @@ function champCardHtml(e: Entry, factionName: string): string {
       </div>
       <div class="champ-card-overlay">
         <div class="champ-card-name">${esc(e.name)}</div>
-        <div class="champ-card-faction">${esc(factionName)}</div>
+        ${factionName ? `<div class="champ-card-faction">${esc(factionName)}</div>` : ''}
         <div class="champ-card-cta">Consulter →</div>
       </div>
     </div>`;
 }
 
-function personnagesGridHtml(list: Entry[], factionName: string): string {
+function personnagesGridHtml(list: Entry[]): string {
   return list.length
-    ? `<div class="champ-grid">${list.map(e=>champCardHtml(e, factionName)).join('')}</div>`
-    : `<div class="roster-empty">Aucun résonateur recensé dans cette faction pour l'instant.</div>`;
+    ? `<div class="champ-grid">${list.map(e=>champCardHtml(e)).join('')}</div>`
+    : `<div class="roster-empty">Aucun personnage recensé pour l'instant.</div>`;
 }
 
 function renderPersonnagesRoster(): string {
-  const initial = FACTIONS[0];
-  const list = ENTRIES.filter(e => e.cat==='personnages' && e.faction===initial.id);
+  const list = ENTRIES.filter(e => e.cat==='personnages');
   return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Personnages</div>
-    <div class="roster-page">
-      <div class="roster-rail">
-        ${FACTIONS.map(f => `
-          <div class="roster-faction ${f.id===initial.id?'active':''}" data-faction="${f.id}" onclick="selectFaction('${f.id}')" title="${esc(f.name)}">
-            ${factionIconSvg(f.id, 24)}
-          </div>`).join('')}
-      </div>
-      <div class="roster-main">
-        <div class="roster-crest" id="rosterCrest">${factionIconSvg(initial.id, 170)}</div>
-        <div class="roster-eyebrow">Faction</div>
-        <h2 id="rosterTitle">${esc(initial.name)}</h2>
-        <p class="roster-desc" id="rosterDesc">${esc(initial.desc)}</p>
-        <div class="roster-ornament"><span></span>❖<span></span></div>
-
-        <div id="rosterGridWrap">${personnagesGridHtml(list, initial.name)}</div>
-      </div>
-    </div>`;
+    <h1 style="font-size:26px; margin-bottom:20px;">Personnages</h1>
+    ${personnagesGridHtml(list)}
+  `;
 }
 
 const ROSTER_MAX_VISIBLE = 3;
@@ -3511,29 +3502,6 @@ function scrollRoster(rosterId: string, dir: number): void {
   state.selected = next;
   layoutRosterStage(rosterId);
 }
-
-function selectFaction(id: string): void {
-  const gridWrap = document.getElementById('rosterGridWrap');
-  if(!gridWrap) return;
-  const f = FACTIONS.find(x => x.id === id);
-  if(!f) return;
-  document.querySelectorAll<HTMLElement>('.roster-faction').forEach(b => b.classList.toggle('active', b.dataset.faction===id));
-  gridWrap.classList.add('slide-out');
-  setTimeout(()=>{
-    const list = ENTRIES.filter(e => e.cat==='personnages' && e.faction===id);
-    const titleEl = document.getElementById('rosterTitle');
-    const descEl = document.getElementById('rosterDesc');
-    const crestEl = document.getElementById('rosterCrest');
-    if(titleEl) titleEl.textContent = f.name;
-    if(descEl) descEl.textContent = f.desc;
-    if(crestEl) crestEl.innerHTML = factionIconSvg(id, 170);
-    gridWrap.innerHTML = personnagesGridHtml(list, f.name);
-    gridWrap.classList.remove('slide-out');
-    gridWrap.classList.add('slide-in');
-    setTimeout(()=> gridWrap.classList.remove('slide-in'), 340);
-  }, 180);
-}
-
 
 function renderHome(): string {
   const counts: Record<string, number> = Object.keys(CATS).reduce((acc: Record<string, number>, c) => {

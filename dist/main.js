@@ -2578,7 +2578,12 @@ function rosterBubbleHtml(rosterId, e) {
     <span class="btn btn-primary roster-info-link" onclick="navigate('entry-${e.id}')">Plus d'infos →</span>
   `;
 }
-function champCardHtml(e, factionName) {
+function factionNameForEntry(e) {
+    const f = FACTIONS.find(x => x.id === e.faction);
+    return f ? f.name : (e.factionLabel || '');
+}
+function champCardHtml(e) {
+    const factionName = factionNameForEntry(e);
     return `
     <div class="champ-card" onclick="navigate('entry-${e.id}')">
       <div class="champ-card-img">
@@ -2588,38 +2593,23 @@ function champCardHtml(e, factionName) {
       </div>
       <div class="champ-card-overlay">
         <div class="champ-card-name">${esc(e.name)}</div>
-        <div class="champ-card-faction">${esc(factionName)}</div>
+        ${factionName ? `<div class="champ-card-faction">${esc(factionName)}</div>` : ''}
         <div class="champ-card-cta">Consulter →</div>
       </div>
     </div>`;
 }
-function personnagesGridHtml(list, factionName) {
+function personnagesGridHtml(list) {
     return list.length
-        ? `<div class="champ-grid">${list.map(e => champCardHtml(e, factionName)).join('')}</div>`
-        : `<div class="roster-empty">Aucun résonateur recensé dans cette faction pour l'instant.</div>`;
+        ? `<div class="champ-grid">${list.map(e => champCardHtml(e)).join('')}</div>`
+        : `<div class="roster-empty">Aucun personnage recensé pour l'instant.</div>`;
 }
 function renderPersonnagesRoster() {
-    const initial = FACTIONS[0];
-    const list = ENTRIES.filter(e => e.cat === 'personnages' && e.faction === initial.id);
+    const list = ENTRIES.filter(e => e.cat === 'personnages');
     return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Personnages</div>
-    <div class="roster-page">
-      <div class="roster-rail">
-        ${FACTIONS.map(f => `
-          <div class="roster-faction ${f.id === initial.id ? 'active' : ''}" data-faction="${f.id}" onclick="selectFaction('${f.id}')" title="${esc(f.name)}">
-            ${factionIconSvg(f.id, 24)}
-          </div>`).join('')}
-      </div>
-      <div class="roster-main">
-        <div class="roster-crest" id="rosterCrest">${factionIconSvg(initial.id, 170)}</div>
-        <div class="roster-eyebrow">Faction</div>
-        <h2 id="rosterTitle">${esc(initial.name)}</h2>
-        <p class="roster-desc" id="rosterDesc">${esc(initial.desc)}</p>
-        <div class="roster-ornament"><span></span>❖<span></span></div>
-
-        <div id="rosterGridWrap">${personnagesGridHtml(list, initial.name)}</div>
-      </div>
-    </div>`;
+    <h1 style="font-size:26px; margin-bottom:20px;">Personnages</h1>
+    ${personnagesGridHtml(list)}
+  `;
 }
 const ROSTER_MAX_VISIBLE = 3;
 // Les cartes se répartissent sur toute la largeur du cadre plutôt que de
@@ -2945,32 +2935,6 @@ function scrollRoster(rosterId, dir) {
     closeRosterBubble(rosterId);
     state.selected = next;
     layoutRosterStage(rosterId);
-}
-function selectFaction(id) {
-    const gridWrap = document.getElementById('rosterGridWrap');
-    if (!gridWrap)
-        return;
-    const f = FACTIONS.find(x => x.id === id);
-    if (!f)
-        return;
-    document.querySelectorAll('.roster-faction').forEach(b => b.classList.toggle('active', b.dataset.faction === id));
-    gridWrap.classList.add('slide-out');
-    setTimeout(() => {
-        const list = ENTRIES.filter(e => e.cat === 'personnages' && e.faction === id);
-        const titleEl = document.getElementById('rosterTitle');
-        const descEl = document.getElementById('rosterDesc');
-        const crestEl = document.getElementById('rosterCrest');
-        if (titleEl)
-            titleEl.textContent = f.name;
-        if (descEl)
-            descEl.textContent = f.desc;
-        if (crestEl)
-            crestEl.innerHTML = factionIconSvg(id, 170);
-        gridWrap.innerHTML = personnagesGridHtml(list, f.name);
-        gridWrap.classList.remove('slide-out');
-        gridWrap.classList.add('slide-in');
-        setTimeout(() => gridWrap.classList.remove('slide-in'), 340);
-    }, 180);
 }
 function renderHome() {
     const counts = Object.keys(CATS).reduce((acc, c) => {
