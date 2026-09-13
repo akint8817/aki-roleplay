@@ -906,7 +906,17 @@ let orgTierEditId: string | null = null;
 let halcyonSquadDocsCache: (Partial<Squad> & { id: string })[] = [];
 // Projets affichés en cartes sur le dossier d'un escadron (voir
 // renderSquadDossier) — groupId est l'id de l'escadron concerné.
-interface SquadProject { id: string; groupId: string; title: string; desc: string; image?: string; }
+interface SquadProject {
+  id: string; groupId: string; title: string; desc: string; image?: string;
+  // "projet" (par défaut, fiche d'équipement) / "branche" (mode dossier
+  // façon rapport d'investigation, voir renderBranchDossierCard) / "mission" —
+  // seule "branche" change l'affichage pour l'instant, "mission" reprend
+  // celui de "projet" en attendant qu'un style lui soit dédié.
+  type?: 'projet' | 'branche' | 'mission';
+  // Commentaire manuscrit affiché en marge du dossier, uniquement pour le
+  // type "branche" (voir renderBranchDossierCard).
+  note?: string;
+}
 let halcyonSquadProjectsCache: SquadProject[] = [];
 // Image d'un projet (voir renderSquadDossier) : soit lors de sa création
 // (brouillon tenu par escadron le temps du formulaire), soit modifiée
@@ -1192,7 +1202,7 @@ function initFirestoreSync(): void {
     const list: SquadProject[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '', image: data.image || undefined });
+      list.push({ id: doc.id, groupId: data.squadId, title: data.title, desc: data.desc || '', image: data.image || undefined, type: data.type || 'projet', note: data.note || undefined });
     });
     halcyonSquadProjectsCache = list;
     const draft = captureDraftFormState();
@@ -2762,18 +2772,24 @@ function toggleOrgDossierEditMode(id: string): void {
 function addSquadProject(squadId: string): void {
   const titleEl = document.getElementById('spjTitle-' + squadId) as HTMLInputElement | null;
   const descEl = document.getElementById('spjDesc-' + squadId) as HTMLTextAreaElement | null;
+  const typeEl = document.getElementById('spjType-' + squadId) as HTMLSelectElement | null;
+  const noteEl = document.getElementById('spjNote-' + squadId) as HTMLTextAreaElement | null;
   const errEl = document.getElementById('spjError-' + squadId);
   const db = getFirestoreDb();
   if(!db){ if(errEl) errEl.textContent = 'Connexion au serveur indisponible.'; return; }
   const title = (titleEl?.value || '').trim();
   const desc = (descEl?.value || '').trim();
+  const type = typeEl?.value || 'projet';
+  const note = (noteEl?.value || '').trim();
   if(!title){ if(errEl) errEl.textContent = 'Donne un titre au projet.'; return; }
   if(errEl) errEl.textContent = '';
   const image = spjImageDraft[squadId] || null;
-  db.collection('halcyonSquadProjects').add({ squadId, title, desc, image })
+  db.collection('halcyonSquadProjects').add({ squadId, title, desc, image, type, note: note || null })
     .then(()=>{
       if(titleEl) titleEl.value = '';
       if(descEl) descEl.value = '';
+      if(typeEl) typeEl.value = 'projet';
+      if(noteEl) noteEl.value = '';
       delete spjImageDraft[squadId];
       refreshNewSquadProjectImagePreview(squadId);
     })
@@ -5082,6 +5098,86 @@ function renderSquadRoster(squad: Squad): string {
     </div>`;
 }
 
+// Carte "projet" par défaut, façon fiche d'équipement — utilisée pour les
+// types "projet" et "mission" (voir SquadProject.type), qui partagent le
+// même affichage pour l'instant.
+function renderProjectDocCard(p: SquadProject, squad: Squad, docCode: string, pCode: string, editing: boolean): string {
+  return `
+    <div class="project-doc-card">
+      ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
+      <div class="project-doc-watermark">DOCUMENT</div>
+      <div class="project-doc-head">
+        <div class="project-doc-photo">
+          <div class="project-doc-photo-clip"></div>
+          ${p.image ? `<img class="project-doc-photo-img" src="${p.image}" alt="">` : `<div class="project-doc-photo-icon">◈</div>`}
+        </div>
+        <div class="project-doc-meta">
+          <span class="project-doc-num">N° ${pCode}</span>
+          <div class="project-doc-title">${esc(p.title)}</div>
+        </div>
+      </div>
+      ${editing ? `
+      <div class="project-doc-image-edit">
+        <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
+        <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
+        ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+      </div>` : ''}
+      <div class="project-doc-fields">
+        <div><b>Projet</b>${esc(p.title)}</div>
+        <div><b>Département</b>${esc(squad.category || squad.name)}</div>
+      </div>
+      <div class="project-doc-section">
+        <span class="project-doc-section-label">◆ Description</span>
+        <span class="project-doc-barcode"></span>
+      </div>
+      <p class="project-doc-desc">${esc(p.desc)}</p>
+      <div class="project-doc-footer">
+        <span>Dossier Halcyon</span><span>DOC-${docCode}-${pCode}</span>
+      </div>
+    </div>`;
+}
+
+// Carte "branche" en mode dossier — papier froissé aux bords déchirés,
+// photo scotchée de travers, intitulé souligné, en-tête tamponné et note
+// manuscrite en marge (voir SquadProject.type et le champ "note"),
+// inspirée d'un rapport d'investigation façon fiche de containment.
+function renderBranchDossierCard(p: SquadProject, squad: Squad, docCode: string, pCode: string, editing: boolean): string {
+  return `
+    <div class="branch-dossier-card">
+      ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
+      <div class="branch-dossier-eyebrow">Dossier de branche — DOC-${docCode}-${pCode}</div>
+      <h3 class="branch-dossier-title">${esc(p.title)}</h3>
+      <div class="branch-dossier-table">
+        <div class="branch-dossier-table-cell"><b>Rattachée à</b>${esc(squad.name)}</div>
+        <div class="branch-dossier-table-cell"><b>Type</b>Branche opérationnelle</div>
+      </div>
+      <div class="branch-dossier-body">
+        <div class="branch-dossier-section">
+          <span class="branch-dossier-section-label">Attributions</span>
+          <p>${esc(p.desc)}</p>
+        </div>
+        ${p.image ? `
+        <div class="branch-dossier-photo">
+          <span class="branch-dossier-tape tape-l"></span>
+          <span class="branch-dossier-tape tape-r"></span>
+          <img src="${p.image}" alt="">
+        </div>` : ''}
+      </div>
+      ${editing ? `
+      <div class="project-doc-image-edit">
+        <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
+        <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
+        ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
+      </div>` : ''}
+      <div class="branch-dossier-torn-divider"></div>
+      <div class="branch-dossier-note">
+        <span class="branch-dossier-note-label">Note</span>
+        <span class="branch-dossier-redacted"></span>
+        ${p.note ? `<p class="branch-dossier-note-text">${esc(p.note)}</p>` : ''}
+      </div>
+    </div>`;
+}
+
 // Dossier complet d'un escadron : bandeau audio, cartouche "tech" (même
 // habillage que les dossiers d'armes), texte long éditable, puis le
 // carrousel de l'effectif (voir renderSquadRoster) juste en dessous.
@@ -5149,52 +5245,35 @@ function renderSquadDossier(id: string): string {
       <div class="tech-project-grid">
         ${projects.map((p,i) => {
           const pCode = String(i+1).padStart(3,'0');
-          return `
-          <div class="project-doc-card">
-            ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
-            <div class="project-doc-watermark">DOCUMENT</div>
-            <div class="project-doc-head">
-              <div class="project-doc-photo">
-                <div class="project-doc-photo-clip"></div>
-                ${p.image ? `<img class="project-doc-photo-img" src="${p.image}" alt="">` : `<div class="project-doc-photo-icon">◈</div>`}
-              </div>
-              <div class="project-doc-meta">
-                <span class="project-doc-num">N° ${pCode}</span>
-                <div class="project-doc-title">${esc(p.title)}</div>
-              </div>
-            </div>
-            ${editing ? `
-            <div class="project-doc-image-edit">
-              <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
-              <span class="btn btn-ghost btn-sm" onclick="document.getElementById('spjImgEdit-${p.id}').click()">🖼 Changer l'image</span>
-              ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
-            </div>` : ''}
-            <div class="project-doc-fields">
-              <div><b>Projet</b>${esc(p.title)}</div>
-              <div><b>Département</b>${esc(squad.category || squad.name)}</div>
-            </div>
-            <div class="project-doc-section">
-              <span class="project-doc-section-label">◆ Description</span>
-              <span class="project-doc-barcode"></span>
-            </div>
-            <p class="project-doc-desc">${esc(p.desc)}</p>
-            <div class="project-doc-footer">
-              <span>Dossier Halcyon</span><span>DOC-${docCode}-${pCode}</span>
-            </div>
-          </div>`;
+          return p.type === 'branche'
+            ? renderBranchDossierCard(p, squad, docCode, pCode, editing)
+            : renderProjectDocCard(p, squad, docCode, pCode, editing);
         }).join('')}
       </div>
       ${editing ? `
       <div class="write-form halcyon-edit-panel" style="max-width:480px;">
-        <div class="write-row"><label>Titre du projet</label><input id="spjTitle-${id}" type="text" placeholder="Ex : Protocole Aube Grise"></div>
-        <div class="write-row"><label>Description</label><textarea id="spjDesc-${id}" rows="3" placeholder="Description courte du projet…"></textarea></div>
+        <div class="write-row"><label>Titre</label><input id="spjTitle-${id}" type="text" placeholder="Ex : Protocole Aube Grise"></div>
+        <div class="write-row"><label>Description</label><textarea id="spjDesc-${id}" rows="3" placeholder="Description courte…"></textarea></div>
+        <div class="write-row">
+          <label>Type</label>
+          <select id="spjType-${id}">
+            <option value="projet">Projet</option>
+            <option value="branche">Branche</option>
+            <option value="mission">Mission</option>
+          </select>
+          <div class="write-hint">« Projet » et « Mission » utilisent la même fiche d'équipement ; « Branche » s'affiche en mode dossier (papier froissé, photo scotchée, note en marge).</div>
+        </div>
+        <div class="write-row">
+          <label>Note annotée (optionnel, uniquement pour « Branche »)</label>
+          <textarea id="spjNote-${id}" rows="2" placeholder="Commentaire manuscrit affiché en marge du dossier…"></textarea>
+        </div>
         <div class="write-row">
           <label>Image (optionnel, 700 Ko max)</label>
           <div class="write-images-list" id="spjImagePreview-${id}">${newSquadProjectImagePreviewHtml(id)}</div>
           <input id="spjImageFile-${id}" type="file" accept="image/*" onchange="handleNewSquadProjectImage('${id}', this)">
         </div>
         <div class="write-error" id="spjError-${id}"></div>
-        <span class="btn btn-primary" onclick="addSquadProject('${id}')">+ Ajouter un projet</span>
+        <span class="btn btn-primary" onclick="addSquadProject('${id}')">+ Ajouter</span>
       </div>` : ''}
       `;
     })()}

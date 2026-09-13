@@ -1745,6 +1745,68 @@ h1,h2,h3,h4{
 }
 .tech-project-card-remove:hover{ background:#6b2f2a; color:#fff; }
 
+/* ---- Carte "branche" en mode dossier — papier froissé, bord déchiré,
+   photo scotchée de travers, note manuscrite en marge. Inspirée d'un
+   rapport d'investigation façon fiche de containment (voir
+   renderBranchDossierCard). Même famille de palette papier que
+   .dossier-form-paper/.project-doc-card, mais composition différente. ---- */
+.branch-dossier-card{
+  position:relative; background:#e5ddc8; color:#2a241c;
+  padding:34px 24px 22px; font-family:'IBM Plex Mono', monospace;
+  box-shadow:0 18px 40px rgba(0,0,0,0.55);
+  clip-path: polygon(
+    0% 6%, 4% 1%, 8% 5%, 12% 0%, 16% 4%, 20% 1%, 24% 6%, 28% 2%, 32% 5%, 36% 0%,
+    40% 4%, 44% 1%, 48% 6%, 52% 2%, 56% 5%, 60% 0%, 64% 4%, 68% 1%, 72% 6%, 76% 2%,
+    80% 5%, 84% 0%, 88% 4%, 92% 1%, 96% 6%, 100% 2%, 100% 100%, 0% 100%
+  );
+}
+.branch-dossier-eyebrow{ font-size:9px; letter-spacing:0.1em; text-transform:uppercase; opacity:0.55; margin-bottom:8px; }
+.branch-dossier-title{
+  font-family:'Cinzel', serif; font-size:19px; font-weight:700; letter-spacing:0.01em;
+  border-bottom:2px solid #2a241c; padding-bottom:10px; margin-bottom:12px;
+}
+.branch-dossier-table{
+  display:flex; gap:14px; font-size:10px; margin-bottom:14px; padding-bottom:12px;
+  border-bottom:1px dashed rgba(42,36,28,0.4);
+}
+.branch-dossier-table-cell{ flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.branch-dossier-table-cell b{ display:block; font-size:8px; text-transform:uppercase; letter-spacing:0.08em; opacity:0.6; margin-bottom:3px; font-weight:400; }
+.branch-dossier-body{ display:flex; gap:16px; align-items:flex-start; margin-bottom:8px; }
+.branch-dossier-section{ flex:1; min-width:0; }
+.branch-dossier-section-label{
+  display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:0.03em;
+  background:linear-gradient(transparent 58%, rgba(122,36,32,0.3) 58%);
+  margin-bottom:8px;
+}
+.branch-dossier-section p{ font-size:12px; line-height:1.7; margin:0; }
+.branch-dossier-photo{
+  position:relative; flex-shrink:0; width:104px; height:124px;
+  background:#111; box-shadow:0 8px 18px rgba(0,0,0,0.5); transform:rotate(-3deg);
+}
+.branch-dossier-photo img{ width:100%; height:100%; object-fit:cover; display:block; }
+.branch-dossier-tape{
+  position:absolute; top:-8px; width:38px; height:15px;
+  background:rgba(214,201,163,0.8); box-shadow:0 2px 3px rgba(0,0,0,0.3);
+}
+.branch-dossier-tape.tape-l{ left:-10px; transform:rotate(-40deg); }
+.branch-dossier-tape.tape-r{ right:-10px; transform:rotate(40deg); }
+.branch-dossier-torn-divider{
+  height:9px; margin:10px -24px 14px;
+  background: repeating-linear-gradient(100deg, transparent 0px 7px, rgba(42,36,28,0.18) 7px 8px);
+  border-top:1px dashed rgba(42,36,28,0.4);
+}
+.branch-dossier-note{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; }
+.branch-dossier-note-label{
+  font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:0.05em;
+  border:2px solid #7a2420; color:#7a2420; border-radius:50%; padding:3px 9px;
+  transform:rotate(-6deg); display:inline-block; flex-shrink:0;
+}
+.branch-dossier-redacted{ display:inline-block; width:64px; height:11px; background:#1a1a1a; flex-shrink:0; }
+.branch-dossier-note-text{
+  flex-basis:100%; font-family:'EB Garamond', serif; font-style:italic; font-size:12px;
+  margin:4px 0 0; opacity:0.85; line-height:1.5;
+}
+
 /* ---- Édition en place des effectifs Halcyon (hiérarchie / escadrons) ---- */
 .halcyon-inline-add-row{ display:flex; gap:10px; align-items:center; margin-top:12px; flex-wrap:wrap; }
 .halcyon-inline-add-row select{ background: var(--surface); color: var(--text); border:1px solid var(--border); padding:6px 10px; font-family: inherit; font-size:12.5px; }
@@ -3459,6 +3521,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=58"></script>
+<script src="dist/main.js?v=59"></script>
 </body>
 </html>
