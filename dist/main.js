@@ -791,7 +791,7 @@ function initFirestoreSync() {
                 faction: data.faction || undefined, factionId: data.factionId || undefined, oxiriGene: data.oxiriGene || undefined,
                 specialite: data.specialite || undefined, capacite: data.capacite || undefined, music: data.music || undefined,
                 linkedIds: data.linkedIds || undefined, body: data.body || [], images: data.images || undefined,
-                author: data.author || 'aki',
+                author: data.author || 'aki', ownerToken: data.ownerToken || undefined,
             });
         });
         ficheRequestsCache = list;
@@ -973,7 +973,6 @@ function updateAuthUI() {
     const welcomeName = document.getElementById('authWelcomeName');
     const ecritureLink = document.getElementById('ecritureNavLink');
     const compteLink = document.getElementById('compteNavLink');
-    const demandeFicheLink = document.getElementById('demandeFicheNavLink');
     const avatar = getAvatar();
     if (btn) {
         btn.innerHTML = loggedIn
@@ -985,7 +984,6 @@ function updateAuthUI() {
     if (inn) inn.style.display = loggedIn ? '' : 'none';
     if (ecritureLink) ecritureLink.style.display = loggedIn ? '' : 'none';
     if (compteLink) compteLink.style.display = loggedIn ? '' : 'none';
-    if (demandeFicheLink) demandeFicheLink.style.display = loggedIn ? '' : 'none';
 }
 function toggleAuthPanel() {
     document.getElementById('authPanel')?.classList.toggle('open');
@@ -1023,17 +1021,13 @@ function slugify(s) {
     return s.toLowerCase().normalize('NFD').replace(new RegExp('[\\u0300-\\u036f]', 'g'), '').replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '');
 }
 function renderFicheRequestForm() {
-    if (!isLoggedIn()) {
-        return `<div class="empty-state">Connecte-toi pour proposer une fiche de personnage.</div>`;
-    }
     return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Demande de fiche</div>
     <h1 style="font-size:26px; margin-bottom:6px;">Demande de fiche</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
-      Écris ta fiche de personnage tranquillement. Une fois envoyée, elle apparaît dans les
-      « Demandes de fiche » de <span onclick="navigate('compte')" style="cursor:pointer; text-decoration:underline;">Mon compte</span>
-      (réservées aux personnes connectées) en attendant d'être validée. Tant qu'elle ne l'est pas,
-      tu peux continuer à la modifier depuis là-bas ; une fois validée, elle rejoint la page Personnages.
+      Pas besoin de compte : écris ta fiche de personnage tranquillement et envoie-la. Elle part en
+      attente de validation par l'équipe ; tant qu'elle n'est pas validée, tu peux la retrouver et la
+      modifier ci-dessous (sur cet appareil). Une fois validée, elle rejoint la page Personnages.
     </p>
     <div class="write-form">
       <input type="hidden" id="frqEditId" value="">
@@ -1102,6 +1096,23 @@ function renderFicheRequestForm() {
       <span class="btn btn-primary" id="frqSubmitBtn" onclick="submitFicheRequest()">Envoyer ma fiche</span>
       <span class="btn btn-ghost" id="frqCancelBtn" style="display:none; margin-left:8px;" onclick="cancelFicheRequestForm()">Annuler</span>
     </div>
+
+    ${(() => {
+        const mine = ficheRequestsCache.filter(isMyFicheRequest);
+        if (!mine.length) return '';
+        return `
+      <h2 style="font-size:18px; margin:36px 0 14px; color:var(--verdigris);">Tes demandes envoyées</h2>
+      <div class="account-list">
+        ${mine.map(r => `
+          <div class="account-list-row">
+            <span>${esc(r.name)} <span style="color:var(--text-dim); font-size:12px;">— ${esc(r.tagline)}</span></span>
+            <span style="display:flex; gap:8px;">
+              <span class="btn btn-ghost" onclick="editFicheRequest('${r.id}')">Modifier</span>
+              <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette demande ?')){ deleteFicheRequest('${r.id}'); }">Supprimer</span>
+            </span>
+          </div>`).join('')}
+      </div>`;
+    })()}
   `;
 }
 function renderEcriture() {
@@ -1694,6 +1705,18 @@ function onFrqFactionSelectChange() {
     input.style.display = isCustom ? '' : 'none';
     if (!isCustom) input.value = '';
 }
+function getFrqOwnerToken() {
+    let token = localStorage.getItem('frqOwnerToken');
+    if (!token) {
+        token = 'anon-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+        localStorage.setItem('frqOwnerToken', token);
+    }
+    return token;
+}
+function isMyFicheRequest(r) {
+    if (isLoggedIn() && r.author === getCurrentUser()) return true;
+    return !!r.ownerToken && r.ownerToken === getFrqOwnerToken();
+}
 function submitFicheRequest() {
     const nameEl = document.getElementById('frqName');
     const taglineEl = document.getElementById('frqTagline');
@@ -1732,7 +1755,7 @@ function submitFicheRequest() {
         name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null,
         oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null,
         music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
-        author: getCurrentUser() || 'aki',
+        author: getCurrentUser() || 'aki', ownerToken: getFrqOwnerToken(),
     };
     const req = editId ? db.collection('ficheRequests').doc(editId).set(data, { merge: true }) : db.collection('ficheRequests').add(data);
     req.then(() => { cancelFicheRequestForm(); })
@@ -2399,7 +2422,7 @@ function renderCompte() {
           <div class="account-list-row">
             <span>${esc(r.name)} <span style="color:var(--text-dim); font-size:12px;">— ${esc(r.tagline)}</span></span>
             <span style="display:flex; gap:8px; flex-wrap:wrap;">
-              ${r.author === getCurrentUser() ? `
+              ${isMyFicheRequest(r) ? `
               <span class="btn btn-ghost" onclick="editFicheRequest('${r.id}')">Modifier</span>
               <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette demande ?')){ deleteFicheRequest('${r.id}'); }">Supprimer</span>` : ''}
               <span class="btn btn-primary" onclick="validateFicheRequest('${r.id}')">Valider</span>
@@ -6621,7 +6644,6 @@ function render() {
         content.innerHTML = renderEcriture();
     }
     else if (route === 'demande-fiche') {
-        if (!isLoggedIn()) { navigate('home'); return; }
         content.innerHTML = renderFicheRequestForm();
     }
     else if (route === 'compte') {

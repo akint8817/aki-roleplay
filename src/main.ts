@@ -858,11 +858,15 @@ let customPagesCache: CustomNavPage[] = [];
 let customChronoCache: CustomChronoEvent[] = [];
 let wfImagesDraft: EntryImage[] = [];
 // Fiches de personnage proposées par les joueurs (voir renderFicheRequestForm)
-// et en attente de validation — visibles uniquement des personnes connectées,
-// depuis "Mon compte" (voir renderCompte). Une fois validée (voir
+// et en attente de validation — accessible sans être connecté (c'est tout
+// l'intérêt : n'importe quel joueur peut proposer sa fiche), mais seules les
+// personnes connectées voient la liste complète et peuvent valider, depuis
+// "Mon compte" (voir renderCompte). Une fois validée (voir
 // validateFicheRequest), la fiche est publiée dans "entries" (comme une fiche
 // écrite normalement depuis l'espace d'écriture) et la demande est supprimée.
-// Tant qu'elle ne l'est pas, seul son auteur peut la modifier ou la retirer.
+// Tant qu'elle ne l'est pas, son auteur peut la modifier ou la retirer —
+// identifié soit par son compte (ownerToken pour un visiteur non connecté,
+// voir getFrqOwnerToken, soit conservé dans son navigateur).
 interface FicheRequest {
   id: string;
   name: string;
@@ -878,6 +882,7 @@ interface FicheRequest {
   body: string[];
   images?: EntryImage[];
   author: string;
+  ownerToken?: string;
 }
 let ficheRequestsCache: FicheRequest[] = [];
 let frqImagesDraft: EntryImage[] = [];
@@ -1075,7 +1080,7 @@ function initFirestoreSync(): void {
         faction: data.faction || undefined, factionId: data.factionId || undefined, oxiriGene: data.oxiriGene || undefined,
         specialite: data.specialite || undefined, capacite: data.capacite || undefined, music: data.music || undefined,
         linkedIds: data.linkedIds || undefined, body: data.body || [], images: data.images || undefined,
-        author: data.author || 'aki',
+        author: data.author || 'aki', ownerToken: data.ownerToken || undefined,
       });
     });
     ficheRequestsCache = list;
@@ -1273,7 +1278,6 @@ function updateAuthUI(): void {
   const welcomeName = document.getElementById('authWelcomeName');
   const ecritureLink = document.getElementById('ecritureNavLink');
   const compteLink = document.getElementById('compteNavLink');
-  const demandeFicheLink = document.getElementById('demandeFicheNavLink');
   const avatar = getAvatar();
   if(btn){
     btn.innerHTML = loggedIn
@@ -1285,7 +1289,8 @@ function updateAuthUI(): void {
   if(inn) inn.style.display = loggedIn ? '' : 'none';
   if(ecritureLink) ecritureLink.style.display = loggedIn ? '' : 'none';
   if(compteLink) compteLink.style.display = loggedIn ? '' : 'none';
-  if(demandeFicheLink) demandeFicheLink.style.display = loggedIn ? '' : 'none';
+  // "Demande de fiche" reste visible sans compte : c'est le but, n'importe
+  // quel visiteur peut proposer une fiche (voir renderFicheRequestForm).
 }
 
 function toggleAuthPanel(): void {
@@ -1335,17 +1340,13 @@ function slugify(s: string): string {
 // publie immédiatement. Reprend les mêmes champs que la fiche "Personnages"
 // de l'espace d'écriture, sans le choix de catégorie (toujours "personnages").
 function renderFicheRequestForm(): string {
-  if(!isLoggedIn()){
-    return `<div class="empty-state">Connecte-toi pour proposer une fiche de personnage.</div>`;
-  }
   return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Demande de fiche</div>
     <h1 style="font-size:26px; margin-bottom:6px;">Demande de fiche</h1>
     <p style="color:var(--text-dim); font-size:13px; margin-bottom:22px;">
-      Écris ta fiche de personnage tranquillement. Une fois envoyée, elle apparaît dans les
-      « Demandes de fiche » de <span onclick="navigate('compte')" style="cursor:pointer; text-decoration:underline;">Mon compte</span>
-      (réservées aux personnes connectées) en attendant d'être validée. Tant qu'elle ne l'est pas,
-      tu peux continuer à la modifier depuis là-bas ; une fois validée, elle rejoint la page Personnages.
+      Pas besoin de compte : écris ta fiche de personnage tranquillement et envoie-la. Elle part en
+      attente de validation par l'équipe ; tant qu'elle n'est pas validée, tu peux la retrouver et la
+      modifier ci-dessous (sur cet appareil). Une fois validée, elle rejoint la page Personnages.
     </p>
     <div class="write-form">
       <input type="hidden" id="frqEditId" value="">
@@ -1414,6 +1415,23 @@ function renderFicheRequestForm(): string {
       <span class="btn btn-primary" id="frqSubmitBtn" onclick="submitFicheRequest()">Envoyer ma fiche</span>
       <span class="btn btn-ghost" id="frqCancelBtn" style="display:none; margin-left:8px;" onclick="cancelFicheRequestForm()">Annuler</span>
     </div>
+
+    ${(() => {
+      const mine = ficheRequestsCache.filter(isMyFicheRequest);
+      if(!mine.length) return '';
+      return `
+      <h2 style="font-size:18px; margin:36px 0 14px; color:var(--verdigris);">Tes demandes envoyées</h2>
+      <div class="account-list">
+        ${mine.map(r=>`
+          <div class="account-list-row">
+            <span>${esc(r.name)} <span style="color:var(--text-dim); font-size:12px;">— ${esc(r.tagline)}</span></span>
+            <span style="display:flex; gap:8px;">
+              <span class="btn btn-ghost" onclick="editFicheRequest('${r.id}')">Modifier</span>
+              <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette demande ?')){ deleteFicheRequest('${r.id}'); }">Supprimer</span>
+            </span>
+          </div>`).join('')}
+      </div>`;
+    })()}
   `;
 }
 
@@ -2064,10 +2082,33 @@ function onFrqFactionSelectChange(): void {
   if(!isCustom) input.value = '';
 }
 
+// Identifiant anonyme gardé dans le navigateur, pour qu'un visiteur non
+// connecté puisse retrouver et modifier sa propre demande de fiche tant
+// qu'elle n'est pas validée (voir renderFicheRequestForm / isMyFicheRequest)
+// — aucun compte requis, juste ce jeton local.
+function getFrqOwnerToken(): string {
+  let token = localStorage.getItem('frqOwnerToken');
+  if(!token){
+    token = 'anon-' + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    localStorage.setItem('frqOwnerToken', token);
+  }
+  return token;
+}
+
+// Une demande de fiche est "la sienne" soit parce qu'on est connecté sous le
+// compte qui l'a envoyée, soit parce qu'elle porte le jeton anonyme de ce
+// navigateur (voir getFrqOwnerToken) — couvre aussi bien un joueur connecté
+// qu'un visiteur qui a juste proposé sa fiche sans compte.
+function isMyFicheRequest(r: FicheRequest): boolean {
+  if(isLoggedIn() && r.author === getCurrentUser()) return true;
+  return !!r.ownerToken && r.ownerToken === getFrqOwnerToken();
+}
+
 // Envoie (ou met à jour) une demande de fiche de personnage (voir
-// renderFicheRequestForm) — reste en attente dans "ficheRequests" tant
-// qu'elle n'est pas validée (voir validateFicheRequest), modifiable
-// uniquement par son auteur (voir renderCompte).
+// renderFicheRequestForm) — accessible sans être connecté, c'est tout
+// l'intérêt. Reste en attente dans "ficheRequests" tant qu'elle n'est pas
+// validée (voir validateFicheRequest), modifiable uniquement par son auteur
+// (voir isMyFicheRequest).
 function submitFicheRequest(): void {
   const nameEl = document.getElementById('frqName') as HTMLInputElement | null;
   const taglineEl = document.getElementById('frqTagline') as HTMLInputElement | null;
@@ -2106,7 +2147,7 @@ function submitFicheRequest(): void {
     name, tagline, quote: quote || null, faction: faction || null, factionId: factionId || null,
     oxiriGene: oxiriGene || null, specialite: specialite.length ? specialite : null, capacite: capacite || null,
     music: music || null, linkedIds: linkedIds.length ? linkedIds : null, body, images,
-    author: getCurrentUser() || 'aki',
+    author: getCurrentUser() || 'aki', ownerToken: getFrqOwnerToken(),
   };
   const req = editId ? db.collection('ficheRequests').doc(editId).set(data, { merge: true }) : db.collection('ficheRequests').add(data);
   req.then(()=>{ cancelFicheRequestForm(); })
@@ -2892,7 +2933,7 @@ function renderCompte(): string {
           <div class="account-list-row">
             <span>${esc(r.name)} <span style="color:var(--text-dim); font-size:12px;">— ${esc(r.tagline)}</span></span>
             <span style="display:flex; gap:8px; flex-wrap:wrap;">
-              ${r.author === getCurrentUser() ? `
+              ${isMyFicheRequest(r) ? `
               <span class="btn btn-ghost" onclick="editFicheRequest('${r.id}')">Modifier</span>
               <span class="btn btn-ghost" onclick="if(confirm('Supprimer définitivement cette demande ?')){ deleteFicheRequest('${r.id}'); }">Supprimer</span>` : ''}
               <span class="btn btn-primary" onclick="validateFicheRequest('${r.id}')">Valider</span>
@@ -7412,7 +7453,6 @@ function render(): void {
     if(!isLoggedIn()){ navigate('home'); return; }
     content.innerHTML = renderEcriture();
   } else if(route === 'demande-fiche'){
-    if(!isLoggedIn()){ navigate('home'); return; }
     content.innerHTML = renderFicheRequestForm();
   } else if(route === 'compte'){
     if(!isLoggedIn()){ navigate('home'); return; }
