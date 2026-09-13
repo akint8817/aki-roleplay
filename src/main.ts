@@ -3148,11 +3148,35 @@ function rosterBubbleHtml(rosterId: string, e: Entry): string {
   `;
 }
 
+// Carte façon grille de champions (League of Legends) : portrait, nom et
+// faction en surimpression, l'image s'agrandit légèrement au survol. Utilisée
+// uniquement pour la page Personnages (renderPersonnagesRoster) — les
+// carrousels 3D (rosterCard3dHtml) restent inchangés pour les escadrons.
+function champCardHtml(e: Entry, factionName: string): string {
+  return `
+    <div class="champ-card" onclick="navigate('entry-${e.id}')">
+      <div class="champ-card-img">
+        ${e.image
+          ? `<img src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">`
+          : `<div class="champ-card-noimg">${esc(e.name.charAt(0))}</div>`}
+      </div>
+      <div class="champ-card-overlay">
+        <div class="champ-card-name">${esc(e.name)}</div>
+        <div class="champ-card-faction">${esc(factionName)}</div>
+        <div class="champ-card-cta">Consulter →</div>
+      </div>
+    </div>`;
+}
+
+function personnagesGridHtml(list: Entry[], factionName: string): string {
+  return list.length
+    ? `<div class="champ-grid">${list.map(e=>champCardHtml(e, factionName)).join('')}</div>`
+    : `<div class="roster-empty">Aucun résonateur recensé dans cette faction pour l'instant.</div>`;
+}
+
 function renderPersonnagesRoster(): string {
-  const rosterId = 'main';
   const initial = FACTIONS[0];
   const list = ENTRIES.filter(e => e.cat==='personnages' && e.faction===initial.id);
-  rosterStates[rosterId] = { factionId: initial.id, list, selected: 0 };
   return `
     <div class="crumbs"><span onclick="navigate('home')" style="cursor:pointer">Accueil</span> / Personnages</div>
     <div class="roster-page">
@@ -3168,25 +3192,8 @@ function renderPersonnagesRoster(): string {
         <h2 id="rosterTitle">${esc(initial.name)}</h2>
         <p class="roster-desc" id="rosterDesc">${esc(initial.desc)}</p>
         <div class="roster-ornament"><span></span>❖<span></span></div>
-        <p class="roster-hint">🖱️ Molette pour parcourir · Survole pour un aperçu · Clique pour zoomer · Glisse pour retourner</p>
 
-        <div class="roster-stage" id="rosterStage-${rosterId}">
-          <span class="roster-frame-corner tl">✦</span>
-          <span class="roster-frame-corner tr">✦</span>
-          <span class="roster-frame-corner bl">✦</span>
-          <span class="roster-frame-corner br">✦</span>
-          <div class="roster-stage-cards" id="rosterStageCards-${rosterId}">
-            ${list.length ? list.map((e,i)=>rosterCard3dHtml(rosterId, e,i)).join('') : ''}
-          </div>
-          ${!list.length ? `<div class="roster-empty">Aucun résonateur recensé dans cette faction pour l'instant.</div>` : ''}
-        </div>
-
-        <div class="roster-nav">
-          <button class="roster-arrow prev" onclick="scrollRoster('${rosterId}', -1)"><span class="line"></span>◂</button>
-          <button class="roster-arrow next" onclick="scrollRoster('${rosterId}', 1)">▸<span class="line"></span></button>
-        </div>
-
-        <div class="roster-bubble" id="rosterBubble-${rosterId}"></div>
+        <div id="rosterGridWrap">${personnagesGridHtml(list, initial.name)}</div>
       </div>
     </div>`;
 }
@@ -3506,30 +3513,25 @@ function scrollRoster(rosterId: string, dir: number): void {
 }
 
 function selectFaction(id: string): void {
-  const rosterId = 'main';
-  const stage = document.getElementById('rosterStage-' + rosterId);
-  const stageCards = document.getElementById('rosterStageCards-' + rosterId);
-  if(!stage || !stageCards) return;
+  const gridWrap = document.getElementById('rosterGridWrap');
+  if(!gridWrap) return;
   const f = FACTIONS.find(x => x.id === id);
   if(!f) return;
   document.querySelectorAll<HTMLElement>('.roster-faction').forEach(b => b.classList.toggle('active', b.dataset.faction===id));
-  closeRosterBubble(rosterId);
-  stage.classList.add('slide-out');
+  gridWrap.classList.add('slide-out');
   setTimeout(()=>{
     const list = ENTRIES.filter(e => e.cat==='personnages' && e.faction===id);
-    rosterStates[rosterId] = { factionId: id, list, selected: 0 };
     const titleEl = document.getElementById('rosterTitle');
     const descEl = document.getElementById('rosterDesc');
     const crestEl = document.getElementById('rosterCrest');
     if(titleEl) titleEl.textContent = f.name;
     if(descEl) descEl.textContent = f.desc;
     if(crestEl) crestEl.innerHTML = factionIconSvg(id, 170);
-    stageCards.innerHTML = list.length ? list.map((e,i)=>rosterCard3dHtml(rosterId, e,i)).join('') : '';
-    stage.classList.remove('slide-out');
-    stage.classList.add('slide-in');
-    layoutRosterStage(rosterId);
-    setTimeout(()=> stage.classList.remove('slide-in'), 340);
-  }, 240);
+    gridWrap.innerHTML = personnagesGridHtml(list, f.name);
+    gridWrap.classList.remove('slide-out');
+    gridWrap.classList.add('slide-in');
+    setTimeout(()=> gridWrap.classList.remove('slide-in'), 340);
+  }, 180);
 }
 
 
@@ -7365,8 +7367,7 @@ function render(): void {
 
   document.querySelectorAll<HTMLElement>('.nav-link').forEach(el=>{
     el.classList.toggle('active', el.dataset.route === route
-      || (el.dataset.route==='halcyon' && route !== 'halcyon' && isHalcyonSection)
-      || (el.dataset.route==='organisations' && route.startsWith('organisation-')));
+      || (el.dataset.route==='organisations' && (isHalcyonSection || route.startsWith('organisation-'))));
   });
 
   if(route === 'home'){
@@ -7431,7 +7432,6 @@ function render(): void {
     content.innerHTML = renderCorruptedArchive();
   } else if(route === 'cat-personnages'){
     content.innerHTML = renderPersonnagesRoster();
-    initRosterStage('main');
   } else if(route === 'chronologie'){
     playChronoBoot();
   } else if(route === 'mission'){

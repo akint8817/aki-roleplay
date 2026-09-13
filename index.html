@@ -2604,6 +2604,51 @@ h1,h2,h3,h4{
   position:relative;
 }
 .roster-ornament span{ flex:1; height:1px; background: linear-gradient(90deg, transparent, currentColor, transparent); }
+
+/* ---- Grille de personnages façon sélection de champions (League of
+   Legends) : portrait + nom + faction en surimpression, léger zoom de
+   l'image au survol — remplace le carrousel 3D pour la page Personnages
+   (le carrousel reste utilisé pour les effectifs d'escadron). ---- */
+#rosterGridWrap{ margin-top:22px; transition: opacity .2s ease; }
+#rosterGridWrap.slide-out{ opacity:0; }
+#rosterGridWrap.slide-in{ animation: rosterIn .34s ease; }
+.champ-grid{ display:grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap:18px; }
+.champ-card{
+  position:relative; aspect-ratio: 3/4; overflow:hidden; border-radius:3px;
+  border:1px solid var(--border); background: var(--surface); cursor:pointer;
+  transition: border-color .2s ease, box-shadow .2s ease;
+}
+.champ-card:hover{ border-color: var(--verdigris); box-shadow: 0 8px 22px rgba(0,0,0,0.45); }
+.champ-card-img{ position:absolute; inset:0; overflow:hidden; }
+.champ-card-img img{ width:100%; height:100%; object-fit:cover; display:block; transition: transform .4s ease; }
+.champ-card:hover .champ-card-img img{ transform: scale(1.09); }
+.champ-card-noimg{
+  width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+  font-family:'Cinzel', serif; font-size:38px; color: rgba(255,255,255,0.15);
+  background: linear-gradient(160deg, var(--surface-2), var(--surface));
+}
+.champ-card-overlay{
+  position:absolute; left:0; right:0; bottom:0; padding:10px 10px 8px; pointer-events:none;
+  background: linear-gradient(0deg, rgba(0,0,0,0.9) 15%, rgba(0,0,0,0.55) 60%, transparent 100%);
+}
+.champ-card-name{
+  font-family:'Cinzel', serif; font-size:13px; color:#f0ebdc; line-height:1.25;
+  overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+.champ-card-faction{
+  font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.1em; text-transform:uppercase;
+  color: var(--text-dim); margin-top:3px;
+}
+.champ-card-cta{
+  font-family:'IBM Plex Mono', monospace; font-size:9px; letter-spacing:0.06em; text-transform:uppercase;
+  color: var(--verdigris); margin-top:5px; opacity:0; transform:translateY(4px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.champ-card:hover .champ-card-cta{ opacity:1; transform:translateY(0); }
+@media (max-width:700px){
+  .champ-grid{ grid-template-columns: repeat(auto-fill, minmax(120px,1fr)); gap:12px; }
+}
+
 .roster-stage{
   position: relative;
   margin-top: 26px;
@@ -3340,10 +3385,6 @@ footer.page-foot{
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 21h18"/><path d="M5 21V7l7-4 7 4v14"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01M12 10h.01"/></svg>
         Organisations
       </a>
-      <a class="nav-link" data-route="halcyon" onclick="navigate('halcyon')">
-        <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="12" r="9"/><path d="M8 14l4-4 4 4"/><circle cx="12" cy="9" r="1.3" fill="currentColor" stroke="none"/></svg>
-        Halcyon
-      </a>
       <a class="nav-link" data-route="chronologie" onclick="navigate('chronologie')">
         <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="9"/><polyline points="12 7 12 12 16 14"/></svg>
         Chronologie
@@ -3412,6 +3453,6 @@ footer.page-foot{
     console.error('Firebase indisponible :', e);
   }
 </script>
-<script src="dist/main.js?v=53"></script>
+<script src="dist/main.js?v=54"></script>
 </body>
 </html>
