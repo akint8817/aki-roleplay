@@ -868,7 +868,7 @@ let halcyonSquadMembersCache: HalcyonRosterLink[] = [];
 // id est un nouveau palier créé depuis le site — même principe que
 // getAllSquads. "position" sert de clé de tri ; deux paliers qui partagent la
 // même position s'affichent côte à côte (une "branche") sur la même ligne.
-let halcyonTierDocsCache: (Partial<{ label: string; desc: string[]; position: number }> & { id: string })[] = [];
+let halcyonTierDocsCache: (Partial<{ label: string; desc: string[]; position: number; memberIds: string[] }> & { id: string })[] = [];
 // Palier actuellement en édition de texte (voir toggleOrgTierEditMode).
 let orgTierEditId: string | null = null;
 // Documents Firestore "halcyonSquads" bruts : un id correspondant à un
@@ -1069,7 +1069,7 @@ function initFirestoreSync(): void {
     const list: (Partial<{ label: string; desc: string; position: number }> & { id: string })[] = [];
     snap.forEach((doc: any) => {
       const data = doc.data();
-      list.push({ id: doc.id, label: data.label, desc: Array.isArray(data.desc) ? data.desc : (data.desc ? [data.desc] : undefined), position: typeof data.position === 'number' ? data.position : undefined });
+      list.push({ id: doc.id, label: data.label, desc: Array.isArray(data.desc) ? data.desc : (data.desc ? [data.desc] : undefined), position: typeof data.position === 'number' ? data.position : undefined, memberIds: Array.isArray(data.memberIds) ? data.memberIds : undefined });
     });
     halcyonTierDocsCache = list;
     const draft = captureDraftFormState();
@@ -1975,6 +1975,21 @@ function deleteOrgTier(id: string): void {
   db.collection('halcyonTierOverrides').doc(id).delete();
 }
 
+// Retire un personnage de la liste "en dur" d'un palier (memberIds, écrite
+// dans HALCYON_HIERARCHY) — contrairement aux personnages ajoutés depuis le
+// site (voir deleteHalcyonTierMember), ceux-là n'ont pas de document propre
+// à supprimer : on enregistre plutôt la liste résultante comme surcharge du
+// palier, qui remplace alors entièrement la liste d'origine (voir
+// getAllHierarchyTiers).
+function removeOrgTierBaseMember(tierId: string, entryId: string): void {
+  const db = getFirestoreDb();
+  if(!db) return;
+  const tier = getAllHierarchyTiers().find(t => t.id === tierId);
+  if(!tier) return;
+  const memberIds = tier.memberIds.filter(id => id !== entryId);
+  db.collection('halcyonTierOverrides').doc(tierId).set({ memberIds }, { merge: true });
+}
+
 // Ajoute un personnage déjà existant au carrousel d'un escadron (voir
 // renderSquadRoster), en plus de ceux déjà rattachés à l'escadron via leur
 // champ "squad" (fiches écrites dans le code).
@@ -2369,7 +2384,7 @@ function getAllHierarchyTiers(): (HierarchyTier & { position: number })[] {
   const merged = HALCYON_HIERARCHY.map((t, i) => {
     const o = overrides.get(t.id);
     const basePosition = i * 10;
-    return o ? { ...t, label: o.label ?? t.label, desc: (o.desc && o.desc.length ? o.desc : t.desc), position: o.position ?? basePosition } : { ...t, position: basePosition };
+    return o ? { ...t, label: o.label ?? t.label, desc: (o.desc && o.desc.length ? o.desc : t.desc), memberIds: o.memberIds ?? t.memberIds, position: o.position ?? basePosition } : { ...t, position: basePosition };
   });
   const customs = halcyonTierDocsCache.filter(d => !baseIds.has(d.id)).map(d => ({
     id: d.id, label: d.label || 'Nouveau palier', desc: (d.desc && d.desc.length ? d.desc : []), memberIds: [] as string[],
@@ -4261,7 +4276,7 @@ function orgTierNodeHtml(tier: HierarchyTier & { position: number }): string {
           ? [
               ...tier.memberIds.map(id=>{
                 const e = findEntry(id);
-                return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
+                return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); removeOrgTierBaseMember('${tier.id}', '${id}')">✕</span>` : ''}</span>` : '';
               }),
               ...customMembers.map(m=>{
                 const e = findEntry(m.entryId);

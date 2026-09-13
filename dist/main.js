@@ -812,7 +812,7 @@ function initFirestoreSync() {
         const list = [];
         snap.forEach((doc) => {
             const data = doc.data();
-            list.push({ id: doc.id, label: data.label, desc: Array.isArray(data.desc) ? data.desc : (data.desc ? [data.desc] : undefined), position: typeof data.position === 'number' ? data.position : undefined });
+            list.push({ id: doc.id, label: data.label, desc: Array.isArray(data.desc) ? data.desc : (data.desc ? [data.desc] : undefined), position: typeof data.position === 'number' ? data.position : undefined, memberIds: Array.isArray(data.memberIds) ? data.memberIds : undefined });
         });
         halcyonTierDocsCache = list;
         const draft = captureDraftFormState();
@@ -1616,6 +1616,14 @@ function deleteOrgTier(id) {
     if (!db) return;
     db.collection('halcyonTierOverrides').doc(id).delete();
 }
+function removeOrgTierBaseMember(tierId, entryId) {
+    const db = getFirestoreDb();
+    if (!db) return;
+    const tier = getAllHierarchyTiers().find(t => t.id === tierId);
+    if (!tier) return;
+    const memberIds = tier.memberIds.filter(id => id !== entryId);
+    db.collection('halcyonTierOverrides').doc(tierId).set({ memberIds }, { merge: true });
+}
 function addHalcyonSquadMember(squadId) {
     const selectEl = document.getElementById('hsmSelect-' + squadId);
     const errEl = document.getElementById('hsmError-' + squadId);
@@ -1936,7 +1944,7 @@ function getAllHierarchyTiers() {
     const merged = HALCYON_HIERARCHY.map((t, i) => {
         const o = overrides.get(t.id);
         const basePosition = i * 10;
-        return o ? { ...t, label: o.label ?? t.label, desc: (o.desc && o.desc.length ? o.desc : t.desc), position: o.position ?? basePosition } : { ...t, position: basePosition };
+        return o ? { ...t, label: o.label ?? t.label, desc: (o.desc && o.desc.length ? o.desc : t.desc), memberIds: o.memberIds ?? t.memberIds, position: o.position ?? basePosition } : { ...t, position: basePosition };
     });
     const customs = halcyonTierDocsCache.filter(d => !baseIds.has(d.id)).map(d => ({
         id: d.id, label: d.label || 'Nouveau palier', desc: (d.desc && d.desc.length ? d.desc : []), memberIds: [],
@@ -3667,7 +3675,7 @@ function orgTierNodeHtml(tier) {
         ? [
             ...tier.memberIds.map(id => {
                 const e = findEntry(id);
-                return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}</span>` : '';
+                return e ? `<span class="org-tier-chip" onclick="navigate('entry-${e.id}')">${esc(e.name)}${halcyonEditMode ? ` <span class="org-tier-chip-remove" onclick="event.stopPropagation(); removeOrgTierBaseMember('${tier.id}', '${id}')">✕</span>` : ''}</span>` : '';
             }),
             ...customMembers.map(m => {
                 const e = findEntry(m.entryId);
