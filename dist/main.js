@@ -6632,8 +6632,11 @@ function closeStoryBook() {
     if (overlay)
         overlay.classList.remove('open');
 }
+let lastRenderedRoute = null;
 function render() {
     const route = (window.location.hash || '#home').slice(1);
+    const isNavigation = route !== lastRenderedRoute;
+    lastRenderedRoute = route;
     const content = document.getElementById('content');
     if (route !== 'carte')
         closeMapOverlay();
@@ -6786,11 +6789,13 @@ function render() {
     else {
         content.innerHTML = renderNotFound();
     }
-    content.scrollTop = 0;
-    window.scrollTo(0, 0);
-    content.classList.remove('page-enter');
-    void content.offsetWidth;
-    content.classList.add('page-enter');
+    if (isNavigation) {
+        content.scrollTop = 0;
+        window.scrollTo(0, 0);
+        content.classList.remove('page-enter');
+        void content.offsetWidth;
+        content.classList.add('page-enter');
+    }
 }
 function runIntro() {
     const overlay = document.getElementById('introOverlay');

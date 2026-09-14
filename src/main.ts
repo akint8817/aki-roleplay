@@ -7491,8 +7491,17 @@ function closeStoryBook(): void {
   if(overlay) overlay.classList.remove('open');
 }
 
+// Retenu entre deux appels de render() pour ne remonter la page en haut que
+// lors d'une vraie navigation (changement de route) — pas quand render() est
+// juste ré-invoqué pour refléter une synchronisation Firestore (quelqu'un
+// d'autre enregistre une modification ailleurs sur le site pendant qu'on lit
+// ou qu'on écrit sur une autre page).
+let lastRenderedRoute: string | null = null;
+
 function render(): void {
   const route = (window.location.hash || '#home').slice(1);
+  const isNavigation = route !== lastRenderedRoute;
+  lastRenderedRoute = route;
   const content = document.getElementById('content')!;
 
   if(route !== 'carte') closeMapOverlay();
@@ -7630,13 +7639,15 @@ function render(): void {
   } else {
     content.innerHTML = renderNotFound();
   }
-  content.scrollTop = 0;
-  window.scrollTo(0,0);
+  if(isNavigation){
+    content.scrollTop = 0;
+    window.scrollTo(0,0);
 
-  // Animation d'ouverture fluide à chaque changement de page.
-  content.classList.remove('page-enter');
-  void content.offsetWidth;
-  content.classList.add('page-enter');
+    // Animation d'ouverture fluide à chaque changement de page.
+    content.classList.remove('page-enter');
+    void content.offsetWidth;
+    content.classList.add('page-enter');
+  }
 }
 
 /* ---------------- INTRO — le nom du jeu se désintègre en poussière ---------------- */
