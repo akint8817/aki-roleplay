@@ -4423,24 +4423,28 @@ function renderBranchDossierCard(p, squad, docCode, pCode, editing) {
     return `
     <div class="branch-dossier-card">
       ${editing ? `<span class="tech-project-card-remove" onclick="deleteSquadProject('${p.id}')">✕</span>` : ''}
-      <div class="branch-dossier-eyebrow">Dossier de branche — DOC-${docCode}-${pCode}</div>
-      <h3 class="branch-dossier-title">${esc(p.title)}</h3>
-      <div class="branch-dossier-table">
-        <div class="branch-dossier-table-cell"><b>Rattachée à</b>${esc(squad.name)}</div>
-        <div class="branch-dossier-table-cell"><b>Type</b>Branche opérationnelle</div>
+      <span class="branch-dossier-pin"></span>
+      <div class="branch-dossier-header">
+        <span>Dossier de branche</span><span class="branch-dossier-header-code">DOC-${docCode}-${pCode}</span>
       </div>
-      <div class="branch-dossier-body">
-        <div class="branch-dossier-section">
-          <span class="branch-dossier-section-label">Attributions</span>
-          <p>${esc(p.desc)}</p>
+      <div class="branch-dossier-top">
+        <div class="branch-dossier-idbox">
+          <h3 class="branch-dossier-title">${esc(p.title)}</h3>
+          <div class="branch-dossier-fields">
+            <div class="branch-dossier-field"><b>Rattachée à</b> : ${esc(squad.name)}</div>
+            <div class="branch-dossier-field"><b>Type</b> : Branche opérationnelle</div>
+            <div class="branch-dossier-field"><b>Département</b> : ${esc(squad.category || squad.name)}</div>
+          </div>
         </div>
         ${p.image ? `
         <div class="branch-dossier-photo">
           <span class="branch-dossier-tape tape-l"></span>
           <span class="branch-dossier-tape tape-r"></span>
           <img src="${p.image}" alt="">
-        </div>` : ''}
+        </div>` : `<div class="branch-dossier-photo branch-dossier-photo-empty">◈</div>`}
       </div>
+      <span class="branch-dossier-section-bar">Attributions</span>
+      <p class="branch-dossier-desc">${esc(p.desc)}</p>
       ${editing ? `
       <div class="project-doc-image-edit">
         <input type="file" accept="image/*" id="spjImgEdit-${p.id}" style="display:none" onchange="handleSquadProjectImage('${p.id}', this)">
@@ -4448,12 +4452,12 @@ function renderBranchDossierCard(p, squad, docCode, pCode, editing) {
         ${p.image ? `<span class="btn btn-ghost btn-sm" onclick="removeSquadProjectImage('${p.id}')">Retirer</span>` : ''}
         <span class="btn btn-ghost btn-sm" onclick="toggleSquadProjectEditMode('${p.id}')">✎ Modifier le texte</span>
       </div>` : ''}
-      <div class="branch-dossier-torn-divider"></div>
+      ${p.note ? `
       <div class="branch-dossier-note">
+        <span class="branch-dossier-note-clip">📎</span>
         <span class="branch-dossier-note-label">Note</span>
-        <span class="branch-dossier-redacted"></span>
-        ${p.note ? `<p class="branch-dossier-note-text">${esc(p.note)}</p>` : ''}
-      </div>
+        <p class="branch-dossier-note-text">${esc(p.note)}</p>
+      </div>` : ''}
     </div>`;
 }
 function renderSquadDossier(id) {
