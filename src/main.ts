@@ -3631,12 +3631,10 @@ function renderHome(): string {
 
 function featuredGridHtml(list: Entry[]): string {
   return list.map((e,i)=>{
-    const badgeIcon = e.faction ? factionIconSvg(e.faction, 20) : iconSvg(e.cat, 18);
     return `
     <div class="featured-card ${i===list.length-1 ? 'featured-large':''}" onclick="showCharacterReveal('${e.id}')">
       ${e.image ? `<img class="featured-img" src="${encodeURI(e.image)}" alt="${esc(e.name)}" style="${e.imagePos ? `object-position:${e.imagePos}` : ''}">` : ''}
       <div class="featured-info">
-        <div class="featured-icon-badge">${badgeIcon}</div>
         <div class="featured-tag">${esc(e.tagline)}</div>
         <div class="featured-name">${esc(e.name)}</div>
       </div>
